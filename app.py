@@ -1,225 +1,202 @@
 import streamlit as st
 import pandas as pd
-from supabase import create_client
+from supabase import create_client, Client
 
 # -----------------------------
-# PAGE CONFIG
+# 1. PAGE CONFIG & CLIENT INIT
 # -----------------------------
-st.set_page_config(page_title="Sylemas", layout="wide")
+st.set_page_config(page_title="Sylemas", layout="wide", page_icon="🎓")
 
-st.title("🎓 Sylemas — Syndicate Learning Management System")
+@st.cache_resource
+def init_connection():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_connection()
 
 # -----------------------------
-# SUPABASE CONNECTION
-# -----------------------------
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# -----------------------------
-# DATABASE FUNCTIONS
+# 2. DATABASE UTILITIES
 # -----------------------------
 def load_students():
-    response = supabase.table("students").select("*").execute()
-    if response.data:
-        return pd.DataFrame(response.data)
-    return pd.DataFrame()
-
-def upsert_student(data):
-    supabase.table("students").upsert(data).execute()
-
-def update_student(enrollment, data):
-    supabase.table("students").update(data).eq("enrollment", enrollment).execute()
-
-def update_group(syndicate_name, data):
-    supabase.table("students").update(data).eq("syndicate_name", syndicate_name).execute()
-
-# -----------------------------
-# AUTH FUNCTIONS
-# -----------------------------
-def sign_up(email, password):
-    return supabase.auth.sign_up({"email": email, "password": password})
-
-def sign_in(email, password):
-    return supabase.auth.sign_in_with_password({"email": email, "password": password})
-
-def create_profile(user):
-    supabase.table("profiles").upsert({
-        "id": user.id,
-        "email": user.email,
-        "role": "student"
-    }).execute()
+    try:
+        response = supabase.table("students").select("*").execute()
+        return pd.DataFrame(response.data) if response.data else pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error loading students: {e}")
+        return pd.DataFrame()
 
 def get_user_profile(user_id):
-    response = supabase.table("profiles").select("*").eq("id", user_id).execute()
-    if response.data:
-        return response.data[0]
-    return None
+    try:
+        res = supabase.table("profiles").select("*").eq("id", user_id).single().execute()
+        return res.data
+    except:
+        return None
+
+def update_student_record(enrollment, data):
+    return supabase.table("students").update(data).eq("enrollment", enrollment).execute()
 
 # -----------------------------
-# SESSION INIT
+# 3. AUTHENTICATION UI
+# -----------------------------
+def auth_ui():
+    st.title("🎓 Sylemas — Syndicate LMS")
+    tab1, tab2 = st.tabs(["Login", "Register"])
+
+    with tab1:
+        with st.form("login_form"):
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            if st.form_submit_button("Login", use_container_width=True):
+                try:
+                    res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                    st.session_state.user = res.user
+                    st.rerun()
+                except Exception as e:
+                    st.error("Invalid credentials or user not found.")
+
+    with tab2:
+        with st.form("reg_form"):
+            new_email = st.text_input("Email")
+            new_password = st.text_input("Password", type="password")
+            if st.form_submit_button("Create Account", use_container_width=True):
+                try:
+                    res = supabase.auth.sign_up({"email": new_email, "password": new_password})
+                    if res.user:
+                        # Create profile entry
+                        supabase.table("profiles").upsert({"id": res.user.id, "email": new_email, "role": "student"}).execute()
+                        st.success("Account created! You can now login.")
+                except Exception as e:
+                    st.error(f"Registration failed: {e}")
+
+# -----------------------------
+# 4. MAIN APP LOGIC
 # -----------------------------
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# -----------------------------
-# LOGIN / REGISTER UI
-# -----------------------------
 if not st.session_state.user:
-    st.title("🔐 Sylemas Login / Registration")
-    tab1, tab2 = st.tabs(["Login", "Register"])
+    auth_ui()
+    st.stop()
 
-    # --- Login ---
-    with tab1:
-        email = st.text_input("Email")
-        password = st.text_input("Password", type="password")
-        if st.button("Login"):
-            response = sign_in(email, password)
-            if response.user:
-                st.session_state.user = response.user
-                st.success("Login successful!")
-                st.rerun()
-            else:
-                st.error("Invalid login credentials")
-
-    # --- Register ---
-    with tab2:
-        new_email = st.text_input("New Email")
-        new_password = st.text_input("New Password", type="password")
-        if st.button("Register"):
-            response = sign_up(new_email, new_password)
-            if response.user:
-                create_profile(response.user)
-                st.success("Registration successful. Please login.")
-            else:
-                st.error("Registration failed. Try again.")
-
-    st.stop()  # Stop further code until login
-
-# -----------------------------
-# AFTER LOGIN
-# -----------------------------
+# Load User Profile
 profile = get_user_profile(st.session_state.user.id)
+if not profile:
+    st.error("Profile not found. Please contact Admin.")
+    st.stop()
+
 role = profile["role"]
 
-st.sidebar.success(f"Logged in as: {profile['email']}")
-st.sidebar.info(f"Role: {role}")
+# Sidebar Navigation
+st.sidebar.title("Sylemas")
+st.sidebar.markdown(f"**User:** `{profile['email']}`\n**Role:** `{role.capitalize()}`")
 
-if st.sidebar.button("Logout"):
-    st.session_state.user = None
-    st.rerun()
-
-# -----------------------------
-# ROLE-BASED MENU
-# -----------------------------
-menu = []
-if role == "admin":
-    menu.append("Upload Roster")
-if role == "faculty":
-    menu.append("Faculty Grading")
-    menu.append("Export Data")
-if role == "student":
-    menu.append("Student Registration")
+menu = ["Home"]
+if role == "admin": menu += ["Upload Roster"]
+if role in ["faculty", "admin"]: menu += ["Faculty Grading", "Export Data"]
+if role == "student": menu += ["Student Registration"]
 
 choice = st.sidebar.radio("Navigation", menu)
 
-# =============================
-# MODULE 1 — UPLOAD ROSTER (Admin)
-# =============================
-if choice == "Upload Roster":
-    st.header("Admin: Upload Class Roster")
-    col1, col2 = st.columns(2)
-    with col1:
-        semester = st.text_input("Semester (e.g., Spring 2026)")
-    with col2:
-        course = st.text_input("Course Name")
+if st.sidebar.button("Logout"):
+    supabase.auth.sign_out()
+    st.session_state.user = None
+    st.rerun()
 
+# --- MODULE: Home ---
+if choice == "Home":
+    st.header(f"Welcome to Sylemas, {profile['email']}!")
+    st.write("Use the sidebar to navigate through your assigned tasks.")
+
+# --- MODULE: Upload Roster (Admin) ---
+elif choice == "Upload Roster":
+    st.header("Admin: Batch Upload Roster")
+    semester = st.text_input("Semester (e.g., Spring 2026)")
+    course = st.text_input("Course Name")
     file = st.file_uploader("Upload Excel (.xlsx)", type=["xlsx"])
+    
     if file and st.button("Process Roster"):
-        new_df = pd.read_excel(file)
-        if "Enrollment" not in new_df.columns or "Name" not in new_df.columns:
-            st.error("Excel must contain 'Enrollment' and 'Name' columns.")
+        df = pd.read_excel(file)
+        if all(col in df.columns for col in ["Enrollment", "Name"]):
+            with st.spinner("Uploading..."):
+                for _, row in df.iterrows():
+                    supabase.table("students").upsert({
+                        "enrollment": str(row["Enrollment"]),
+                        "name": row["Name"],
+                        "course": course,
+                        "semester": semester
+                    }).execute()
+            st.success("Roster updated successfully!")
         else:
-            for _, row in new_df.iterrows():
-                upsert_student({
-                    "enrollment": str(row["Enrollment"]),
-                    "name": row["Name"],
-                    "course": course,
-                    "semester": semester
-                })
-            st.success("Roster saved permanently!")
+            st.error("Missing 'Enrollment' or 'Name' columns.")
 
-# =============================
-# MODULE 2 — STUDENT REGISTRATION
-# =============================
+# --- MODULE: Student Registration ---
 elif choice == "Student Registration":
-    st.header("Student: Join a Syndicate")
+    st.header("Join Your Syndicate")
     db = load_students()
     if db.empty:
-        st.warning("No roster found. Please ask Admin to upload the class list.")
+        st.warning("No roster found.")
     else:
-        student_id = st.selectbox("Select your Enrollment Number", db["enrollment"].unique())
-        student_record = db[db["enrollment"] == student_id].iloc[0]
-        with st.form("student_form"):
-            email = st.text_input("Email", value=student_record.get("email", ""))
-            phone = st.text_input("Phone", value=student_record.get("phone", ""))
-            syndicate = st.text_input("Syndicate Name", value=student_record.get("syndicate_name", "Unassigned"))
-            is_lead = st.checkbox("I am Syndicate Lead", value=student_record.get("is_lead", False))
-            if st.form_submit_button("Submit"):
-                update_student(student_id, {
-                    "email": email,
-                    "phone": phone,
-                    "syndicate_name": syndicate,
-                    "is_lead": is_lead
+        # Check if student already registered to find their record
+        student_id = st.selectbox("Confirm your Enrollment Number", db["enrollment"].unique())
+        rec = db[db["enrollment"] == student_id].iloc[0]
+        
+        with st.form("reg_student"):
+            s_phone = st.text_input("Phone Number", value=rec.get("phone", "") or "")
+            s_syndicate = st.text_input("Syndicate Name", value=rec.get("syndicate_name", "Unassigned"))
+            s_lead = st.checkbox("Syndicate Lead?", value=bool(rec.get("is_lead", False)))
+            
+            if st.form_submit_button("Update My Info"):
+                update_student_record(student_id, {
+                    "email": profile["email"],
+                    "phone": s_phone,
+                    "syndicate_name": s_syndicate,
+                    "is_lead": s_lead
                 })
-                st.success("Details updated successfully!")
-                st.rerun()
+                st.toast("Profile Updated!", icon="✅")
 
-# =============================
-# MODULE 3 — FACULTY GRADING
-# =============================
+# --- MODULE: Faculty Grading ---
 elif choice == "Faculty Grading":
-    st.header("Faculty: Grading Dashboard")
+    st.header("Faculty Grading Panel")
     db = load_students()
-    if db.empty:
-        st.warning("No students found.")
-    else:
-        groups = db["syndicate_name"].dropna().unique()
-        selected_group = st.selectbox("Select Syndicate", groups)
-        if selected_group and selected_group != "Unassigned":
-            st.subheader(f"Group Grading — {selected_group}")
-            group_grade = st.number_input("Set Group Grade", 0, 100)
-            if st.button("Apply Group Grade"):
-                update_group(selected_group, {"syndicate_grade": group_grade})
-                st.success("Group grade applied!")
-                st.rerun()
-            st.subheader("Individual Adjustments")
+    
+    if not db.empty:
+        # Filter groups
+        groups = [g for g in db["syndicate_name"].unique() if g and g != "Unassigned"]
+        selected_group = st.selectbox("Select Syndicate to Grade", groups)
+        
+        if selected_group:
             members = db[db["syndicate_name"] == selected_group]
-            for _, row in members.iterrows():
-                col1, col2 = st.columns([3,1])
-                col1.write(f"{row['name']} ({row['enrollment']})")
-                new_grade = col2.number_input(
-                    "Individual Grade",
-                    0, 100,
-                    value=int(row.get("individual_grade", 0)),
-                    key=f"grade_{row['enrollment']}"
-                )
-                update_student(row["enrollment"], {"individual_grade": new_grade})
+            
+            with st.form("batch_grading_form"):
+                st.subheader(f"Grading: {selected_group}")
+                
+                # Bulk Group Grade
+                g_grade = st.number_input("Standard Group Grade", 0, 100, step=5)
+                apply_all = st.checkbox("Override all individual grades with group grade?")
+                
+                st.divider()
+                
+                individual_updates = {}
+                for _, member in members.iterrows():
+                    col1, col2 = st.columns([3, 1])
+                    col1.write(f"**{member['name']}** ({member['enrollment']})")
+                    current_val = int(member.get("individual_grade", 0)) if member.get("individual_grade") else 0
+                    individual_updates[member["enrollment"]] = col2.number_input(
+                        "Grade", 0, 100, value=g_grade if apply_all else current_val, key=member["enrollment"]
+                    )
+                
+                if st.form_submit_button("Save All Grades"):
+                    for eid, grade in individual_updates.items():
+                        update_student_record(eid, {"individual_grade": grade, "syndicate_grade": g_grade})
+                    st.toast("Grades Saved Successfully!", icon="🚀")
+                    st.rerun()
 
-# =============================
-# MODULE 4 — EXPORT
-# =============================
+# --- MODULE: Export Data ---
 elif choice == "Export Data":
-    st.header("Download Student Data")
+    st.header("Download Data")
     db = load_students()
-    if db.empty:
-        st.warning("No data available.")
-    else:
-        st.dataframe(db)
+    if not db.empty:
+        st.dataframe(db, use_container_width=True)
         csv = db.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="Download as CSV",
-            data=csv,
-            file_name="sylemas_export.csv",
-            mime="text/csv"
-        )
+        st.download_button("Download CSV", data=csv, file_name="sylemas_data.csv", mime="text/csv")
