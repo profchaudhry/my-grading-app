@@ -59,17 +59,23 @@ if role == "admin":
             
             if st.form_submit_button("Create"):
                 if code and title:
-                    supabase.table("courses").insert({
-                        "course_code": code, "course_title": title,
-                        "credit_hours": credits, "semester": semester
-                    }).execute()
-                    st.success(f"Course {code} created successfully!")
+                    try:
+                        # Attempting insert with error catching to reveal redacted details
+                        supabase.table("courses").insert({
+                            "course_code": code, 
+                            "course_title": title,
+                            "credit_hours": credits, 
+                            "semester": semester
+                        }).execute()
+                        st.success(f"Course {code} created successfully!")
+                    except Exception as e:
+                        st.error(f"Postgrest Error: {str(e)}")
+                        st.info("Check if RLS policies are set for INSERT on the 'courses' table.")
                 else:
                     st.error("Please fill in required fields.")
 
     elif page == "Assign Course":
         st.title("Assign Faculty to Course")
-        # Fixed query: removed potentially missing columns for testing
         faculty = fetch_data("profiles", "id, email", {"role": ["faculty", "faculty_pro"]})
         courses = fetch_data("courses")
 
@@ -77,8 +83,8 @@ if role == "admin":
             f_map = {f['email']: f["id"] for f in faculty}
             c_map = {f"{c['course_code']} - {c['course_title']}": c["id"] for c in courses}
             
-            sel_f = st.selectbox("Select Faculty", f_map.keys())
-            sel_c = st.selectbox("Select Course", c_map.keys())
+            sel_f = st.selectbox("Select Faculty", list(f_map.keys()))
+            sel_c = st.selectbox("Select Course", list(c_map.keys()))
 
             if st.button("Assign"):
                 try:
@@ -88,9 +94,7 @@ if role == "admin":
                     }).execute()
                     st.success("Assigned Successfully")
                 except Exception as e:
-                    st.warning("This assignment might already exist.")
-        else:
-            st.warning("Ensure faculty and courses exist.")
+                    st.error(f"Error: {e}")
 
     elif page == "Enroll Student":
         st.title("Enroll Student")
@@ -101,8 +105,8 @@ if role == "admin":
             s_map = {s["email"]: s["id"] for s in students}
             c_map = {f"{c['course_code']} - {c['course_title']}": c["id"] for c in courses}
             
-            sel_s = st.selectbox("Select Student", s_map.keys())
-            sel_c = st.selectbox("Select Course", c_map.keys())
+            sel_s = st.selectbox("Select Student", list(s_map.keys()))
+            sel_c = st.selectbox("Select Course", list(c_map.keys()))
 
             if st.button("Enroll"):
                 try:
@@ -110,8 +114,8 @@ if role == "admin":
                         "student_id": s_map[sel_s], "course_id": c_map[sel_c]
                     }).execute()
                     st.success("Student Enrolled!")
-                except:
-                    st.warning("Student already enrolled.")
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
     elif page == "Approve Faculty":
         st.title("Approve Faculty")
@@ -137,7 +141,6 @@ if role == "admin":
 elif role in ["faculty", "faculty_pro"]:
     page = st.sidebar.radio("Faculty Menu", ["Dashboard", "My Courses", "Create Assessment", "Enter Grades"])
 
-    # Pre-fetch assigned courses for the faculty
     assignments = supabase.table("faculty_courses").select("course_id, courses(*)").eq("faculty_id", profile["id"]).execute()
     assigned_courses = assignments.data if assignments.data else []
 
@@ -177,7 +180,6 @@ elif role in ["faculty", "faculty_pro"]:
             sel_c = st.selectbox("Select Course", list(c_map.keys()))
             course_id = c_map[sel_c]
             
-            # Fetch context for grading
             assessments = fetch_data("assessments", "*", {"course_id": course_id})
             enrollments = supabase.table("student_enrollments").select("profiles(id, email)").eq("course_id", course_id).execute()
             students = enrollments.data if enrollments.data else []
@@ -189,7 +191,6 @@ elif role in ["faculty", "faculty_pro"]:
                 sel_a = st.selectbox("Select Assessment", list(a_map.keys()))
                 sel_s = st.selectbox("Select Student", list(s_map.keys()))
                 
-                # Dynamic max marks check
                 current_max = next(a['max_marks'] for a in assessments if a['id'] == a_map[sel_a])
                 marks = st.number_input("Marks Obtained", 0.0, float(current_max))
                 
