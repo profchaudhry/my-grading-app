@@ -28,6 +28,7 @@ if role == "admin":
             "Dashboard",
             "Create Course",
             "Assign Course",
+            "Enroll Student",
             "Approve Faculty"
         ]
     )
@@ -44,7 +45,7 @@ if role == "admin":
         with st.form("create_course"):
             code = st.text_input("Course Code")
             title = st.text_input("Course Title")
-            credits = st.number_input("Credit Hours", min_value=1, max_value=6)
+            credits = st.number_input("Credit Hours", 1, 6)
             semester = st.text_input("Semester")
 
             submitted = st.form_submit_button("Create")
@@ -70,9 +71,7 @@ if role == "admin":
             .in_("role", ["faculty", "faculty_pro"]) \
             .execute()
 
-        courses = supabase.table("courses") \
-            .select("*") \
-            .execute()
+        courses = supabase.table("courses").select("*").execute()
 
         if faculty.data and courses.data:
 
@@ -85,17 +84,49 @@ if role == "admin":
             selected_faculty = st.selectbox("Select Faculty", list(faculty_dict.keys()))
             selected_course = st.selectbox("Select Course", list(course_dict.keys()))
 
-            if st.button("Assign Course"):
+            if st.button("Assign"):
                 supabase.table("faculty_courses").insert({
                     "faculty_id": faculty_dict[selected_faculty],
                     "course_id": course_dict[selected_course]
                 }).execute()
 
-                st.success("Course Assigned")
+                st.success("Assigned")
+                st.rerun()
+
+    # ---------------- Enroll Student ----------------
+    if page == "Enroll Student":
+
+        st.title("Enroll Student in Course")
+
+        students = supabase.table("profiles") \
+            .select("id,email") \
+            .eq("role", "student") \
+            .execute()
+
+        courses = supabase.table("courses").select("*").execute()
+
+        if students.data and courses.data:
+
+            student_dict = {s["email"]: s["id"] for s in students.data}
+            course_dict = {
+                f'{c["course_code"]} - {c["course_title"]}': c["id"]
+                for c in courses.data
+            }
+
+            selected_student = st.selectbox("Select Student", list(student_dict.keys()))
+            selected_course = st.selectbox("Select Course", list(course_dict.keys()))
+
+            if st.button("Enroll"):
+                supabase.table("student_enrollments").insert({
+                    "student_id": student_dict[selected_student],
+                    "course_id": course_dict[selected_course]
+                }).execute()
+
+                st.success("Student Enrolled")
                 st.rerun()
 
         else:
-            st.warning("No faculty or courses available.")
+            st.warning("No students or courses available.")
 
     # ---------------- Approve Faculty ----------------
     if page == "Approve Faculty":
@@ -136,15 +167,12 @@ elif role in ["faculty", "faculty_pro"]:
         ]
     )
 
-    # ---------------- Dashboard ----------------
     if page == "Dashboard":
         st.title("Faculty Dashboard")
-        st.write("Welcome.")
 
-    # ---------------- My Courses ----------------
     if page == "My Courses":
 
-        st.title("My Assigned Courses")
+        st.title("My Courses & Students")
 
         assignments = supabase.table("faculty_courses") \
             .select("course_id") \
@@ -161,7 +189,26 @@ elif role in ["faculty", "faculty_pro"]:
                 .in_("id", course_ids) \
                 .execute()
 
-            st.dataframe(courses.data)
+            for course in courses.data:
+
+                st.subheader(f'{course["course_code"]} - {course["course_title"]}')
+
+                enrollments = supabase.table("student_enrollments") \
+                    .select("student_id") \
+                    .eq("course_id", course["id"]) \
+                    .execute()
+
+                if enrollments.data:
+                    student_ids = [e["student_id"] for e in enrollments.data]
+
+                    students = supabase.table("profiles") \
+                        .select("email") \
+                        .in_("id", student_ids) \
+                        .execute()
+
+                    st.dataframe(students.data)
+                else:
+                    st.info("No students enrolled.")
 
 
 # ==================================================
@@ -170,10 +217,24 @@ elif role in ["faculty", "faculty_pro"]:
 elif role == "student":
 
     st.title("Student Dashboard")
-    st.write("Student features coming soon.")
+
+    enrollments = supabase.table("student_enrollments") \
+        .select("course_id") \
+        .eq("student_id", profile["id"]) \
+        .execute()
+
+    if enrollments.data:
+        course_ids = [e["course_id"] for e in enrollments.data]
+
+        courses = supabase.table("courses") \
+            .select("*") \
+            .in_("id", course_ids) \
+            .execute()
+
+        st.dataframe(courses.data)
+    else:
+        st.info("Not enrolled in any course.")
 
 
-# ==================================================
-# ===================== LOGOUT =====================
 # ==================================================
 logout()
