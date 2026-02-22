@@ -2,104 +2,95 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client
 
-# -----------------------------
-# PAGE CONFIG
-# -----------------------------
-st.set_page_config(page_title="Sylemas", layout="wide")
+st.set_page_config(page_title="Sylemas UCS1.2", layout="wide")
+st.title("🎓 Sylemas — UCS1.2")
 
-st.title("🎓 Sylemas — Syndicate Learning Management System")
-
-# -----------------------------
-# SUPABASE CONNECTION
-# -----------------------------
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# -----------------------------
-# DATABASE FUNCTIONS
-# -----------------------------
-def load_students():
-    response = supabase.table("students").select("*").execute()
-    if response.data:
-        return pd.DataFrame(response.data)
-    return pd.DataFrame()
+# ---------------------------------
+# SESSION INIT
+# ---------------------------------
+if "user" not in st.session_state:
+    st.session_state.user = None
 
-def upsert_student(data):
-    supabase.table("students").upsert(data).execute()
+# ---------------------------------
+# DATABASE HELPERS
+# ---------------------------------
+def get_profile(user_id):
+    res = supabase.table("profiles").select("*").eq("id", user_id).execute()
+    return res.data[0] if res.data else None
+
+def update_profile(user_id, data):
+    supabase.table("profiles").update(data).eq("id", user_id).execute()
+
+def load_students():
+    res = supabase.table("students").select("*").execute()
+    return pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
 def update_student(enrollment, data):
     supabase.table("students").update(data).eq("enrollment", enrollment).execute()
 
-def update_group(syndicate_name, data):
-    supabase.table("students").update(data).eq("syndicate_name", syndicate_name).execute()
-
-# -----------------------------
-# AUTH FUNCTIONS
-# -----------------------------
-def sign_up(email, password):
-    return supabase.auth.sign_up({"email": email, "password": password})
-
-def sign_in(email, password):
-    return supabase.auth.sign_in_with_password({"email": email, "password": password})
-
-def create_profile(user):
-    supabase.table("profiles").upsert({
-        "id": user.id,
-        "email": user.email,
-        "role": "student"
-    }).execute()
-
-def get_user_profile(user_id):
-    response = supabase.table("profiles").select("*").eq("id", user_id).execute()
-    if response.data:
-        return response.data[0]
-    return None
-
-# -----------------------------
-# SESSION INIT
-# -----------------------------
-if "user" not in st.session_state:
-    st.session_state.user = None
-
-# -----------------------------
-# LOGIN / REGISTER UI
-# -----------------------------
+# ---------------------------------
+# LOGIN SCREEN
+# ---------------------------------
 if not st.session_state.user:
-    st.title("🔐 Sylemas Login / Registration")
-    tab1, tab2 = st.tabs(["Login", "Register"])
 
-    # --- Login ---
-    with tab1:
-        email = st.text_input("Email")
-        password = st.text_input("Password", type="password")
-        if st.button("Login"):
-            response = sign_in(email, password)
-            if response.user:
-                st.session_state.user = response.user
-                st.success("Login successful!")
-                st.rerun()
-            else:
-                st.error("Invalid login credentials")
+    st.header("🔐 Login")
 
-    # --- Register ---
-    with tab2:
-        new_email = st.text_input("New Email")
-        new_password = st.text_input("New Password", type="password")
-        if st.button("Register"):
-            response = sign_up(new_email, new_password)
-            if response.user:
-                create_profile(response.user)
-                st.success("Registration successful. Please login.")
-            else:
-                st.error("Registration failed. Try again.")
+    role_selected = st.selectbox(
+        "Login As",
+        ["Student", "Faculty", "Admin", "Faculty Pro"]
+    )
 
-    st.stop()  # Stop further code until login
+    if role_selected == "Student":
+        username = st.text_input("Enrollment Number")
+    else:
+        username = st.text_input("Email")
 
-# -----------------------------
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+
+        if role_selected == "Student":
+            login_email = f"{username}@student.local"
+        else:
+            login_email = username
+
+        response = supabase.auth.sign_in_with_password({
+            "email": login_email,
+            "password": password
+        })
+
+        if response.user:
+
+            profile = get_profile(response.user.id)
+
+            if not profile:
+                st.error("Profile not found.")
+                st.stop()
+
+            actual_role = profile["role"]
+
+            expected_role = role_selected.lower().replace(" ", "_")
+
+            if actual_role != expected_role:
+                st.error("Incorrect role selected.")
+                st.stop()
+
+            st.session_state.user = response.user
+            st.rerun()
+        else:
+            st.error("Invalid credentials")
+
+    st.stop()
+
+# ---------------------------------
 # AFTER LOGIN
-# -----------------------------
-profile = get_user_profile(st.session_state.user.id)
+# ---------------------------------
+profile = get_profile(st.session_state.user.id)
 role = profile["role"]
 
 st.sidebar.success(f"Logged in as: {profile['email']}")
@@ -109,117 +100,139 @@ if st.sidebar.button("Logout"):
     st.session_state.user = None
     st.rerun()
 
-# -----------------------------
-# ROLE-BASED MENU
-# -----------------------------
+# ---------------------------------
+# FORCE PASSWORD CHANGE
+# ---------------------------------
+if profile["must_change_password"]:
+    st.warning("You must change your password.")
+    new_pass = st.text_input("New Password", type="password")
+    if st.button("Update Password"):
+        supabase.auth.update_user({"password": new_pass})
+        update_profile(st.session_state.user.id, {"must_change_password": False})
+        st.success("Password updated.")
+        st.rerun()
+    st.stop()
+
+# ---------------------------------
+# MENU BASED ON ROLE
+# ---------------------------------
 menu = []
-if role == "admin":
+
+if role in ["admin", "faculty_pro"]:
     menu.append("Upload Roster")
-if role == "faculty":
+    menu.append("Approve Faculty")
+
+if role in ["faculty", "faculty_pro"]:
     menu.append("Faculty Grading")
-    menu.append("Export Data")
+
 if role == "student":
-    menu.append("Student Registration")
+    menu.append("Student Dashboard")
 
 choice = st.sidebar.radio("Navigation", menu)
 
-# =============================
-# MODULE 1 — UPLOAD ROSTER (Admin)
-# =============================
+# =====================================
+# ADMIN — UPLOAD ROSTER
+# =====================================
 if choice == "Upload Roster":
-    st.header("Admin: Upload Class Roster")
-    col1, col2 = st.columns(2)
-    with col1:
-        semester = st.text_input("Semester (e.g., Spring 2026)")
-    with col2:
-        course = st.text_input("Course Name")
 
-    file = st.file_uploader("Upload Excel (.xlsx)", type=["xlsx"])
-    if file and st.button("Process Roster"):
-        new_df = pd.read_excel(file)
-        if "Enrollment" not in new_df.columns or "Name" not in new_df.columns:
-            st.error("Excel must contain 'Enrollment' and 'Name' columns.")
-        else:
-            for _, row in new_df.iterrows():
-                upsert_student({
-                    "enrollment": str(row["Enrollment"]),
-                    "name": row["Name"],
-                    "course": course,
-                    "semester": semester
-                })
-            st.success("Roster saved permanently!")
+    st.header("Upload Class Roster")
 
-# =============================
-# MODULE 2 — STUDENT REGISTRATION
-# =============================
-elif choice == "Student Registration":
-    st.header("Student: Join a Syndicate")
+    semester = st.text_input("Semester")
+    course = st.text_input("Course")
+    file = st.file_uploader("Upload Excel", type=["xlsx"])
+
+    if file and st.button("Process"):
+
+        df = pd.read_excel(file)
+
+        for _, row in df.iterrows():
+
+            enrollment = str(row["Enrollment"])
+            name = row["Name"]
+
+            # Create auth user
+            user = supabase.auth.admin.create_user({
+                "email": f"{enrollment}@student.local",
+                "password": "ChangerYourPassword1@#4"
+            })
+
+            # Insert profile
+            supabase.table("profiles").insert({
+                "id": user.user.id,
+                "email": f"{enrollment}@student.local",
+                "role": "student",
+                "enrollment": enrollment,
+                "must_change_password": True
+            }).execute()
+
+            # Insert student record
+            supabase.table("students").upsert({
+                "enrollment": enrollment,
+                "name": name,
+                "course": course,
+                "semester": semester
+            }).execute()
+
+        st.success("Roster uploaded and student accounts created.")
+
+# =====================================
+# STUDENT DASHBOARD
+# =====================================
+elif choice == "Student Dashboard":
+
+    st.header("My Profile")
+
+    enrollment = profile["enrollment"]
+
     db = load_students()
-    if db.empty:
-        st.warning("No roster found. Please ask Admin to upload the class list.")
-    else:
-        student_id = st.selectbox("Select your Enrollment Number", db["enrollment"].unique())
-        student_record = db[db["enrollment"] == student_id].iloc[0]
-        with st.form("student_form"):
-            email = st.text_input("Email", value=student_record.get("email", ""))
-            phone = st.text_input("Phone", value=student_record.get("phone", ""))
-            syndicate = st.text_input("Syndicate Name", value=student_record.get("syndicate_name", "Unassigned"))
-            is_lead = st.checkbox("I am Syndicate Lead", value=student_record.get("is_lead", False))
-            if st.form_submit_button("Submit"):
-                update_student(student_id, {
-                    "email": email,
-                    "phone": phone,
-                    "syndicate_name": syndicate,
-                    "is_lead": is_lead
-                })
-                st.success("Details updated successfully!")
-                st.rerun()
+    student = db[db["enrollment"] == enrollment].iloc[0]
 
-# =============================
-# MODULE 3 — FACULTY GRADING
-# =============================
+    email = st.text_input("Email", value=student.get("email", ""))
+    phone = st.text_input("Phone", value=student.get("phone", ""))
+
+    if st.button("Update"):
+        update_student(enrollment, {"email": email, "phone": phone})
+        st.success("Updated successfully.")
+
+# =====================================
+# FACULTY GRADING
+# =====================================
 elif choice == "Faculty Grading":
-    st.header("Faculty: Grading Dashboard")
+
+    st.header("Grading Dashboard")
+
     db = load_students()
+
     if db.empty:
         st.warning("No students found.")
     else:
         groups = db["syndicate_name"].dropna().unique()
-        selected_group = st.selectbox("Select Syndicate", groups)
-        if selected_group and selected_group != "Unassigned":
-            st.subheader(f"Group Grading — {selected_group}")
-            group_grade = st.number_input("Set Group Grade", 0, 100)
-            if st.button("Apply Group Grade"):
-                update_group(selected_group, {"syndicate_grade": group_grade})
-                st.success("Group grade applied!")
-                st.rerun()
-            st.subheader("Individual Adjustments")
-            members = db[db["syndicate_name"] == selected_group]
-            for _, row in members.iterrows():
-                col1, col2 = st.columns([3,1])
-                col1.write(f"{row['name']} ({row['enrollment']})")
-                new_grade = col2.number_input(
-                    "Individual Grade",
-                    0, 100,
-                    value=int(row.get("individual_grade", 0)),
-                    key=f"grade_{row['enrollment']}"
-                )
-                update_student(row["enrollment"], {"individual_grade": new_grade})
+        selected = st.selectbox("Select Syndicate", groups)
 
-# =============================
-# MODULE 4 — EXPORT
-# =============================
-elif choice == "Export Data":
-    st.header("Download Student Data")
-    db = load_students()
-    if db.empty:
-        st.warning("No data available.")
-    else:
-        st.dataframe(db)
-        csv = db.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="Download as CSV",
-            data=csv,
-            file_name="sylemas_export.csv",
-            mime="text/csv"
-        )
+        grade = st.number_input("Group Grade", 0, 100)
+
+        if st.button("Apply Grade"):
+            supabase.table("students")\
+                .update({"syndicate_grade": grade})\
+                .eq("syndicate_name", selected)\
+                .execute()
+
+            st.success("Grade applied.")
+
+# =====================================
+# APPROVE FACULTY
+# =====================================
+elif choice == "Approve Faculty":
+
+    st.header("Approve Faculty")
+
+    pending = supabase.table("profiles")\
+        .select("*")\
+        .eq("role", "pending_faculty")\
+        .execute()
+
+    for p in pending.data:
+        st.write(p["email"])
+        if st.button(f"Approve {p['email']}"):
+            update_profile(p["id"], {"role": "faculty"})
+            st.success("Faculty approved.")
