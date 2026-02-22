@@ -22,3 +22,4 @@ if st.sidebar.button("Logout"):
 
 st.title("🎓 Welcome to Sylemas UCS1.4")
 st.write("Use the left sidebar to navigate.")
+
