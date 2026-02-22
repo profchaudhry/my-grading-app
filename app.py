@@ -4,48 +4,100 @@ from utils.db import supabase
 
 st.set_page_config(page_title="UCS System", layout="wide")
 
-
-# ==========================================
-# SESSION CHECK
-# ==========================================
+# ================= SESSION CHECK =================
 if "user" not in st.session_state:
     login()
     st.stop()
 
-
 profile = st.session_state.profile
 role = profile["role"]
 
-# ==========================================
-# SIDEBAR
-# ==========================================
 st.sidebar.title("UCS Navigation")
 st.sidebar.write(f"Logged in as: {role}")
 
 enforce_password_change()
 
-
-# ==========================================
-# ================= ADMIN ==================
-# ==========================================
+# ==================================================
+# ====================== ADMIN =====================
+# ==================================================
 if role == "admin":
 
     page = st.sidebar.radio(
         "Admin Menu",
         [
             "Dashboard",
-            "Approve Faculty",
-            "View All Profiles"
+            "Create Course",
+            "Assign Course",
+            "Approve Faculty"
         ]
     )
 
+    # ---------------- Dashboard ----------------
     if page == "Dashboard":
         st.title("Admin Dashboard")
-        st.write("Welcome Administrator.")
+        st.write("System Overview")
 
-    # --------------------------------------
-    # APPROVE FACULTY
-    # --------------------------------------
+    # ---------------- Create Course ----------------
+    if page == "Create Course":
+        st.title("Create Course")
+
+        with st.form("create_course"):
+            code = st.text_input("Course Code")
+            title = st.text_input("Course Title")
+            credits = st.number_input("Credit Hours", min_value=1, max_value=6)
+            semester = st.text_input("Semester")
+
+            submitted = st.form_submit_button("Create")
+
+            if submitted:
+                supabase.table("courses").insert({
+                    "course_code": code,
+                    "course_title": title,
+                    "credit_hours": credits,
+                    "semester": semester
+                }).execute()
+
+                st.success("Course Created")
+                st.rerun()
+
+    # ---------------- Assign Course ----------------
+    if page == "Assign Course":
+
+        st.title("Assign Course to Faculty")
+
+        faculty = supabase.table("profiles") \
+            .select("id,email") \
+            .in_("role", ["faculty", "faculty_pro"]) \
+            .execute()
+
+        courses = supabase.table("courses") \
+            .select("*") \
+            .execute()
+
+        if faculty.data and courses.data:
+
+            faculty_dict = {f["email"]: f["id"] for f in faculty.data}
+            course_dict = {
+                f'{c["course_code"]} - {c["course_title"]}': c["id"]
+                for c in courses.data
+            }
+
+            selected_faculty = st.selectbox("Select Faculty", list(faculty_dict.keys()))
+            selected_course = st.selectbox("Select Course", list(course_dict.keys()))
+
+            if st.button("Assign Course"):
+                supabase.table("faculty_courses").insert({
+                    "faculty_id": faculty_dict[selected_faculty],
+                    "course_id": course_dict[selected_course]
+                }).execute()
+
+                st.success("Course Assigned")
+                st.rerun()
+
+        else:
+            st.warning("No faculty or courses available.")
+
+    # ---------------- Approve Faculty ----------------
     if page == "Approve Faculty":
 
         st.title("Approve Faculty")
@@ -56,119 +108,72 @@ if role == "admin":
             .execute()
 
         if not pending.data:
-            st.success("No pending faculty approvals.")
+            st.success("No pending faculty.")
         else:
             for faculty in pending.data:
                 col1, col2 = st.columns([4, 1])
-
                 col1.write(faculty["email"])
 
-                if col2.button(
-                    "Approve",
-                    key=faculty["id"]
-                ):
+                if col2.button("Approve", key=faculty["id"]):
                     supabase.table("profiles").update({
                         "role": "faculty"
                     }).eq("id", faculty["id"]).execute()
 
-                    st.success("Faculty Approved")
+                    st.success("Approved")
                     st.rerun()
 
-    # --------------------------------------
-    # VIEW ALL PROFILES
-    # --------------------------------------
-    if page == "View All Profiles":
 
-        st.title("All Users")
-
-        users = supabase.table("profiles") \
-            .select("*") \
-            .execute()
-
-        st.dataframe(users.data)
-
-
-# ==========================================
-# =============== FACULTY ==================
-# ==========================================
+# ==================================================
+# ==================== FACULTY =====================
+# ==================================================
 elif role in ["faculty", "faculty_pro"]:
 
     page = st.sidebar.radio(
         "Faculty Menu",
         [
             "Dashboard",
-            "My Profile"
+            "My Courses"
         ]
     )
 
+    # ---------------- Dashboard ----------------
     if page == "Dashboard":
         st.title("Faculty Dashboard")
-        st.write("Welcome Faculty Member.")
+        st.write("Welcome.")
 
-    # --------------------------------------
-    # FACULTY PROFILE
-    # --------------------------------------
-    if page == "My Profile":
+    # ---------------- My Courses ----------------
+    if page == "My Courses":
 
-        st.title("My Profile")
+        st.title("My Assigned Courses")
 
-        with st.form("faculty_profile_form"):
+        assignments = supabase.table("faculty_courses") \
+            .select("course_id") \
+            .eq("faculty_id", profile["id"]) \
+            .execute()
 
-            first_name = st.text_input("First Name", profile.get("first_name", ""))
-            last_name = st.text_input("Last Name", profile.get("last_name", ""))
-            designation = st.text_input("Designation", profile.get("designation", ""))
-            department = st.text_input("Department", profile.get("department", ""))
-            mobile = st.text_input("Mobile", profile.get("mobile", ""))
-            office = st.text_input("Office Address", profile.get("office_address", ""))
-            campus = st.text_input("Campus", profile.get("campus", ""))
-            city = st.text_input("City", profile.get("city", ""))
-            institution = st.text_input("Affiliated Institution", profile.get("institution", ""))
+        if not assignments.data:
+            st.info("No courses assigned.")
+        else:
+            course_ids = [a["course_id"] for a in assignments.data]
 
-            submitted = st.form_submit_button("Update Profile")
+            courses = supabase.table("courses") \
+                .select("*") \
+                .in_("id", course_ids) \
+                .execute()
 
-            if submitted:
-
-                supabase.table("profiles").update({
-                    "first_name": first_name,
-                    "last_name": last_name,
-                    "designation": designation,
-                    "department": department,
-                    "mobile": mobile,
-                    "office_address": office,
-                    "campus": campus,
-                    "city": city,
-                    "institution": institution
-                }).eq("id", profile["id"]).execute()
-
-                st.success("Profile Updated")
-                st.rerun()
+            st.dataframe(courses.data)
 
 
-# ==========================================
-# =============== STUDENT ==================
-# ==========================================
+# ==================================================
+# ==================== STUDENT =====================
+# ==================================================
 elif role == "student":
 
-    page = st.sidebar.radio(
-        "Student Menu",
-        [
-            "Dashboard"
-        ]
-    )
-
-    if page == "Dashboard":
-        st.title("Student Dashboard")
-        st.write("Welcome Student.")
+    st.title("Student Dashboard")
+    st.write("Student features coming soon.")
 
 
-# ==========================================
-# UNKNOWN ROLE
-# ==========================================
-else:
-    st.error("Role not recognized.")
-
-
-# ==========================================
-# LOGOUT
-# ==========================================
+# ==================================================
+# ===================== LOGOUT =====================
+# ==================================================
 logout()
