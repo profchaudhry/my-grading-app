@@ -2,23 +2,25 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client
 
-st.set_page_config(page_title="Sylemas UCS1.2", layout="wide")
-st.title("🎓 Sylemas — UCS1.2")
+st.set_page_config(page_title="Sylemas UCS1.3", layout="wide")
+st.title("🎓 Sylemas — UCS1.3")
 
+# -----------------------------
+# SUPABASE CONNECTION
+# -----------------------------
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ---------------------------------
+# -----------------------------
 # SESSION INIT
-# ---------------------------------
+# -----------------------------
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# ---------------------------------
-# DATABASE HELPERS
-# ---------------------------------
+# -----------------------------
+# HELPERS
+# -----------------------------
 def get_profile(user_id):
     res = supabase.table("profiles").select("*").eq("id", user_id).execute()
     return res.data[0] if res.data else None
@@ -30,12 +32,9 @@ def load_students():
     res = supabase.table("students").select("*").execute()
     return pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
-def update_student(enrollment, data):
-    supabase.table("students").update(data).eq("enrollment", enrollment).execute()
-
-# ---------------------------------
-# LOGIN SCREEN
-# ---------------------------------
+# -----------------------------
+# LOGIN
+# -----------------------------
 if not st.session_state.user:
 
     st.header("🔐 Login")
@@ -65,18 +64,15 @@ if not st.session_state.user:
         })
 
         if response.user:
-
             profile = get_profile(response.user.id)
 
             if not profile:
                 st.error("Profile not found.")
                 st.stop()
 
-            actual_role = profile["role"]
-
             expected_role = role_selected.lower().replace(" ", "_")
 
-            if actual_role != expected_role:
+            if profile["role"] != expected_role:
                 st.error("Incorrect role selected.")
                 st.stop()
 
@@ -87,9 +83,9 @@ if not st.session_state.user:
 
     st.stop()
 
-# ---------------------------------
+# -----------------------------
 # AFTER LOGIN
-# ---------------------------------
+# -----------------------------
 profile = get_profile(st.session_state.user.id)
 role = profile["role"]
 
@@ -100,9 +96,9 @@ if st.sidebar.button("Logout"):
     st.session_state.user = None
     st.rerun()
 
-# ---------------------------------
+# -----------------------------
 # FORCE PASSWORD CHANGE
-# ---------------------------------
+# -----------------------------
 if profile.get("must_change_password", False):
     st.warning("You must change your password.")
     new_pass = st.text_input("New Password", type="password")
@@ -113,20 +109,19 @@ if profile.get("must_change_password", False):
         st.rerun()
     st.stop()
 
-# ---------------------------------
-# MENU BASED ON ROLE
-# ---------------------------------
+# -----------------------------
+# ROLE MENU
+# -----------------------------
 menu = []
 
 if role in ["admin", "faculty_pro"]:
-    menu.append("Upload Roster")
-    menu.append("Approve Faculty")
+    menu += ["Upload Roster", "Manage Courses", "Assign Courses", "Approve Faculty", "View Faculty Profiles"]
 
 if role in ["faculty", "faculty_pro"]:
-    menu.append("Faculty Grading")
+    menu += ["Faculty Dashboard", "My Faculty Profile"]
 
 if role == "student":
-    menu.append("Student Dashboard")
+    menu += ["Student Dashboard"]
 
 choice = st.sidebar.radio("Navigation", menu)
 
@@ -150,13 +145,11 @@ if choice == "Upload Roster":
             enrollment = str(row["Enrollment"])
             name = row["Name"]
 
-            # Create auth user
             user = supabase.auth.admin.create_user({
                 "email": f"{enrollment}@student.local",
                 "password": "ChangerYourPassword1@#4"
             })
 
-            # Insert profile
             supabase.table("profiles").insert({
                 "id": user.user.id,
                 "email": f"{enrollment}@student.local",
@@ -165,7 +158,6 @@ if choice == "Upload Roster":
                 "must_change_password": True
             }).execute()
 
-            # Insert student record
             supabase.table("students").upsert({
                 "enrollment": enrollment,
                 "name": name,
@@ -176,51 +168,58 @@ if choice == "Upload Roster":
         st.success("Roster uploaded and student accounts created.")
 
 # =====================================
-# STUDENT DASHBOARD
+# ADMIN — MANAGE COURSES
 # =====================================
-elif choice == "Student Dashboard":
+elif choice == "Manage Courses":
 
-    st.header("My Profile")
+    st.header("Create Course")
 
-    enrollment = profile["enrollment"]
+    code = st.text_input("Course Code")
+    title = st.text_input("Course Title")
+    semester = st.text_input("Semester")
 
-    db = load_students()
-    student = db[db["enrollment"] == enrollment].iloc[0]
-
-    email = st.text_input("Email", value=student.get("email", ""))
-    phone = st.text_input("Phone", value=student.get("phone", ""))
-
-    if st.button("Update"):
-        update_student(enrollment, {"email": email, "phone": phone})
-        st.success("Updated successfully.")
+    if st.button("Create Course"):
+        supabase.table("courses").insert({
+            "course_code": code,
+            "course_title": title,
+            "semester": semester
+        }).execute()
+        st.success("Course created.")
 
 # =====================================
-# FACULTY GRADING
+# ADMIN — ASSIGN COURSES
 # =====================================
-elif choice == "Faculty Grading":
+elif choice == "Assign Courses":
 
-    st.header("Grading Dashboard")
+    st.header("Assign Course to Faculty")
 
-    db = load_students()
+    faculty = supabase.table("profiles")\
+        .select("*")\
+        .in_("role", ["faculty", "faculty_pro"])\
+        .execute()
 
-    if db.empty:
-        st.warning("No students found.")
+    courses = supabase.table("courses").select("*").execute()
+
+    if faculty.data and courses.data:
+
+        faculty_map = {f["email"]: f["id"] for f in faculty.data}
+        course_map = {c["course_code"]: c["id"] for c in courses.data}
+
+        selected_faculty = st.selectbox("Select Faculty", list(faculty_map.keys()))
+        selected_course = st.selectbox("Select Course", list(course_map.keys()))
+
+        if st.button("Assign"):
+            supabase.table("faculty_courses").insert({
+                "faculty_id": faculty_map[selected_faculty],
+                "course_id": course_map[selected_course]
+            }).execute()
+
+            st.success("Course assigned successfully.")
     else:
-        groups = db["syndicate_name"].dropna().unique()
-        selected = st.selectbox("Select Syndicate", groups)
-
-        grade = st.number_input("Group Grade", 0, 100)
-
-        if st.button("Apply Grade"):
-            supabase.table("students")\
-                .update({"syndicate_grade": grade})\
-                .eq("syndicate_name", selected)\
-                .execute()
-
-            st.success("Grade applied.")
+        st.warning("No faculty or courses found.")
 
 # =====================================
-# APPROVE FACULTY
+# ADMIN — APPROVE FACULTY
 # =====================================
 elif choice == "Approve Faculty":
 
@@ -231,9 +230,111 @@ elif choice == "Approve Faculty":
         .eq("role", "pending_faculty")\
         .execute()
 
-    for p in pending.data:
-        st.write(p["email"])
-        if st.button(f"Approve {p['email']}"):
-            update_profile(p["id"], {"role": "faculty"})
-            st.success("Faculty approved.")
+    if pending.data:
+        for p in pending.data:
+            st.write(p["email"])
+            if st.button(f"Approve {p['email']}"):
+                update_profile(p["id"], {"role": "faculty"})
+                st.success("Faculty approved.")
+    else:
+        st.info("No pending faculty.")
 
+# =====================================
+# ADMIN — VIEW ALL FACULTY PROFILES
+# =====================================
+elif choice == "View Faculty Profiles":
+
+    st.header("All Faculty Profiles")
+
+    profiles = supabase.table("faculty_profiles").select("*").execute()
+
+    if profiles.data:
+        df = pd.DataFrame(profiles.data)
+        st.dataframe(df)
+    else:
+        st.info("No faculty profiles found.")
+
+# =====================================
+# FACULTY DASHBOARD
+# =====================================
+elif choice == "Faculty Dashboard":
+
+    st.header("My Assigned Courses")
+
+    assigned = supabase.table("faculty_courses")\
+        .select("courses(*)")\
+        .eq("faculty_id", st.session_state.user.id)\
+        .execute()
+
+    if assigned.data:
+        course_list = [c["courses"]["course_code"] for c in assigned.data]
+        st.selectbox("Assigned Courses", course_list)
+    else:
+        st.warning("No courses assigned.")
+
+# =====================================
+# FACULTY PROFILE
+# =====================================
+elif choice == "My Faculty Profile":
+
+    st.header("Faculty Profile")
+
+    existing = supabase.table("faculty_profiles")\
+        .select("*")\
+        .eq("id", st.session_state.user.id)\
+        .execute()
+
+    data = existing.data[0] if existing.data else {}
+
+    first = st.text_input("First Name", value=data.get("first_name", ""))
+    last = st.text_input("Last Name", value=data.get("last_name", ""))
+    designation = st.text_input("Designation", value=data.get("designation", ""))
+    department = st.text_input("Department", value=data.get("department", ""))
+    mobile = st.text_input("Mobile", value=data.get("mobile", ""))
+    office = st.text_input("Office Address", value=data.get("office_address", ""))
+    campus = st.text_input("Campus", value=data.get("campus", ""))
+    city = st.text_input("City", value=data.get("city", ""))
+    institution = st.text_input("Institution", value=data.get("institution", ""))
+    bio = st.text_area("Biography", value=data.get("biography", ""))
+
+    if st.button("Save Profile"):
+
+        payload = {
+            "id": st.session_state.user.id,
+            "first_name": first,
+            "last_name": last,
+            "designation": designation,
+            "department": department,
+            "mobile": mobile,
+            "office_address": office,
+            "campus": campus,
+            "city": city,
+            "institution": institution,
+            "biography": bio
+        }
+
+        supabase.table("faculty_profiles").upsert(payload).execute()
+        st.success("Profile saved.")
+
+# =====================================
+# STUDENT DASHBOARD
+# =====================================
+elif choice == "Student Dashboard":
+
+    st.header("My Profile")
+
+    enrollment = profile["enrollment"]
+
+    students = load_students()
+    student = students[students["enrollment"] == enrollment].iloc[0]
+
+    email = st.text_input("Email", value=student.get("email", ""))
+    phone = st.text_input("Phone", value=student.get("phone", ""))
+
+    if st.button("Update"):
+        supabase.table("students")\
+            .update({"email": email, "phone": phone})\
+            .eq("enrollment", enrollment)\
+            .execute()
+
+        st.success("Updated successfully.")
