@@ -180,4 +180,49 @@ elif role in ["faculty", "faculty_pro"]:
             # Fetch context for grading
             assessments = fetch_data("assessments", "*", {"course_id": course_id})
             enrollments = supabase.table("student_enrollments").select("profiles(id, email)").eq("course_id", course_id).execute()
-            students = enrollments.data if enrollments
+            students = enrollments.data if enrollments.data else []
+
+            if assessments and students:
+                a_map = {a["title"]: a["id"] for a in assessments}
+                s_map = {s['profiles']['email']: s['profiles']['id'] for s in students}
+                
+                sel_a = st.selectbox("Select Assessment", list(a_map.keys()))
+                sel_s = st.selectbox("Select Student", list(s_map.keys()))
+                
+                # Dynamic max marks check
+                current_max = next(a['max_marks'] for a in assessments if a['id'] == a_map[sel_a])
+                marks = st.number_input("Marks Obtained", 0.0, float(current_max))
+                
+                if st.button("Submit Grade"):
+                    supabase.table("grades").upsert({
+                        "assessment_id": a_map[sel_a],
+                        "student_id": s_map[sel_s],
+                        "marks_obtained": marks
+                    }).execute()
+                    st.success("Grade Saved!")
+            else:
+                st.warning("Ensure assessments are created and students are enrolled.")
+
+# ==================================================
+# ====================== STUDENT ===================
+# ==================================================
+elif role == "student":
+    st.title("My Academic Records")
+    
+    grades = supabase.table("grades").select(
+        "marks_obtained, assessments(title, max_marks, courses(course_title))"
+    ).eq("student_id", profile["id"]).execute()
+    
+    if grades.data:
+        report = []
+        for g in grades.data:
+            report.append({
+                "Course": g['assessments']['courses']['course_title'],
+                "Assessment": g['assessments']['title'],
+                "Score": f"{g['marks_obtained']} / {g['assessments']['max_marks']}"
+            })
+        st.table(report)
+    else:
+        st.info("No grades available yet.")
+
+logout()
