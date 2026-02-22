@@ -103,7 +103,7 @@ if st.sidebar.button("Logout"):
 # ---------------------------------
 # FORCE PASSWORD CHANGE
 # ---------------------------------
-if profile["must_change_password"]:
+if profile.get("must_change_password", False):
     st.warning("You must change your password.")
     new_pass = st.text_input("New Password", type="password")
     if st.button("Update Password"):
@@ -236,3 +236,4 @@ elif choice == "Approve Faculty":
         if st.button(f"Approve {p['email']}"):
             update_profile(p["id"], {"role": "faculty"})
             st.success("Faculty approved.")
+
