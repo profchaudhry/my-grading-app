@@ -1,198 +1,313 @@
 import streamlit as st
-from utils.db import supabase
+from supabase import create_client
+import os
 
-st.set_page_config(page_title="SylemaX", layout="wide")
+# -----------------------------
+# CONFIG
+# -----------------------------
 
-# =========================
-# SESSION STATE INIT
-# =========================
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+st.set_page_config(
+    page_title="SylemaX",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# -----------------------------
+# SESSION INIT
+# -----------------------------
+
 if "user" not in st.session_state:
     st.session_state.user = None
-    st.session_state.profile = None
 
+if "role" not in st.session_state:
+    st.session_state.role = None
 
-# =========================
-# LOGIN PAGE (NO SIDEBAR)
-# =========================
-def login():
+# -----------------------------
+# LOGIN PAGE
+# -----------------------------
 
-    st.markdown("<h1 style='text-align:center;'>SylemaX</h1>", unsafe_allow_html=True)
-    st.markdown(
-        "<h4 style='text-align:center;'>Let's make academic management a breeze</h4>",
-        unsafe_allow_html=True
-    )
-    st.markdown("---")
+def login_page():
 
-    role = st.selectbox("Select Role", ["Student", "Faculty", "Admin"])
+    st.markdown("""
+        <style>
+            [data-testid="stSidebar"] {display:none;}
+            .main-title {font-size:48px; font-weight:700; text-align:center;}
+            .sub-title {font-size:20px; text-align:center; margin-bottom:40px; color:gray;}
+            .red-button button {background-color:#e63946; color:white; font-weight:600;}
+        </style>
+    """, unsafe_allow_html=True)
 
-    username_label = "Enrollment Number" if role == "Student" else "Email"
-    username = st.text_input(username_label)
-    password = st.text_input("Password", type="password")
+    st.markdown('<div class="main-title">SylemaX</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-title">Let\'s make academic management a breeze</div>', unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2)
+    tab1, tab2 = st.tabs(["Login", "Faculty Registration"])
 
-    # -------- STUDENT LOGIN --------
-    if role == "Student":
-        if col1.button("Login"):
+    with tab1:
+        email = st.text_input("Email / Enrollment Number")
+        password = st.text_input("Password", type="password")
+
+        if st.button("Login"):
             try:
                 response = supabase.auth.sign_in_with_password({
-                    "email": f"{username}@student.local",
+                    "email": email,
                     "password": password
                 })
-                if response.user:
-                    profile = supabase.table("profiles") \
-                        .select("*") \
-                        .eq("id", response.user.id) \
-                        .single() \
-                        .execute().data
+                user = response.user
 
-                    st.session_state.user = response.user
-                    st.session_state.profile = profile
-                    st.rerun()
-            except:
-                st.error("Invalid login credentials.")
+                profile = supabase.table("profiles")\
+                    .select("*")\
+                    .eq("id", user.id)\
+                    .single()\
+                    .execute()
 
-    # -------- FACULTY LOGIN --------
-    if role == "Faculty":
-        if col1.button("Login"):
-            try:
-                response = supabase.auth.sign_in_with_password({
-                    "email": username,
-                    "password": password
-                })
-                if response.user:
-                    profile = supabase.table("profiles") \
-                        .select("*") \
-                        .eq("id", response.user.id) \
-                        .single() \
-                        .execute().data
+                st.session_state.user = user
+                st.session_state.role = profile.data["role"]
+                st.rerun()
 
-                    if profile["role"] == "pending_faculty":
-                        st.warning("Awaiting admin approval.")
-                        return
+            except Exception:
+                st.error("Invalid credentials")
 
-                    st.session_state.user = response.user
-                    st.session_state.profile = profile
-                    st.rerun()
-            except:
-                st.error("Invalid login credentials.")
+    with tab2:
+        st.markdown('<div class="red-button">', unsafe_allow_html=True)
+        email = st.text_input("Faculty Email")
+        password = st.text_input("Password", type="password")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        # Red Faculty Registration Button
-        st.markdown(
-            """
-            <style>
-            div.stButton > button:first-child {
-                background-color: #d11a2a;
-                color: white;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-
-        if col2.button("Register as Faculty"):
+        if st.button("Register Faculty"):
             try:
                 response = supabase.auth.sign_up({
-                    "email": username,
+                    "email": email,
                     "password": password
                 })
-                if response.user:
-                    supabase.table("profiles").insert({
-                        "id": response.user.id,
-                        "email": username,
-                        "role": "pending_faculty",
-                        "must_change_password": False
-                    }).execute()
-                    st.success("Registration successful. Await admin approval.")
-            except:
+
+                supabase.table("profiles").insert({
+                    "id": response.user.id,
+                    "email": email,
+                    "role": "faculty",
+                    "approved": False
+                }).execute()
+
+                st.success("Registration submitted. Await admin approval.")
+            except Exception:
                 st.error("Registration failed.")
 
-    # -------- ADMIN LOGIN --------
-    if role == "Admin":
-        if col1.button("Login"):
-            try:
-                response = supabase.auth.sign_in_with_password({
-                    "email": username,
-                    "password": password
-                })
-                if response.user:
-                    profile = supabase.table("profiles") \
-                        .select("*") \
-                        .eq("id", response.user.id) \
-                        .single() \
-                        .execute().data
+# -----------------------------
+# DASHBOARD HEADER
+# -----------------------------
 
-                    if profile["role"] not in ["admin", "faculty_pro"]:
-                        st.error("Unauthorized access.")
-                        return
+def dashboard_header():
 
-                    st.session_state.user = response.user
-                    st.session_state.profile = profile
-                    st.rerun()
-            except:
-                st.error("Invalid login credentials.")
+    st.title("Dashboard")
+    st.markdown("### You are logged in as:")
 
+    role = st.session_state.role
+    user = st.session_state.user
 
-# =========================
-# LOGOUT
-# =========================
-def logout():
+    profile = supabase.table("profiles")\
+        .select("*")\
+        .eq("id", user.id)\
+        .single()\
+        .execute()
+
+    data = profile.data
+
+    st.markdown(f"**Role:** {role.capitalize()}")
+
+    if role == "student":
+        st.markdown(f"**Name:** {data.get('first_name','')} {data.get('last_name','')}")
+        st.markdown(f"**Enrollment Number:** {data.get('enrollment','')}")
+
+    else:
+        st.markdown(f"**Name:** {data.get('first_name','')} {data.get('last_name','')}")
+        st.markdown(f"**Email Address:** {data.get('email')}")
+
+    st.divider()
+
+# -----------------------------
+# ADMIN CONSOLE
+# -----------------------------
+
+def admin_console():
+
+    st.sidebar.title("Admin Panel")
+
+    menu = st.sidebar.radio(
+        "Navigate",
+        [
+            "Dashboard",
+            "Manage Courses",
+            "Assign Courses",
+            "Faculty Approvals"
+        ]
+    )
+
+    if menu == "Dashboard":
+        dashboard_header()
+
+    if menu == "Manage Courses":
+        st.header("Manage Courses")
+
+        code = st.text_input("Course Code")
+        title = st.text_input("Course Title")
+        semester = st.text_input("Semester")
+
+        if st.button("Create Course"):
+            supabase.table("courses").insert({
+                "code": code,
+                "title": title,
+                "semester": semester
+            }).execute()
+
+            st.success("Course Created")
+
+        courses = supabase.table("courses").select("*").execute()
+        st.dataframe(courses.data)
+
+    if menu == "Assign Courses":
+        st.header("Assign Courses")
+
+        courses = supabase.table("courses").select("*").execute().data
+        faculty = supabase.table("profiles")\
+            .select("*")\
+            .eq("role","faculty")\
+            .eq("approved",True)\
+            .execute().data
+
+        course_dict = {c["title"]: c["id"] for c in courses}
+        faculty_dict = {f["email"]: f["id"] for f in faculty}
+
+        selected_course = st.selectbox("Select Course", list(course_dict.keys()))
+        selected_faculty = st.selectbox("Select Faculty", list(faculty_dict.keys()))
+
+        if st.button("Assign"):
+            supabase.table("course_assignments").insert({
+                "course_id": course_dict[selected_course],
+                "faculty_id": faculty_dict[selected_faculty]
+            }).execute()
+
+            st.success("Course Assigned")
+
+    if menu == "Faculty Approvals":
+        st.header("Faculty Approvals")
+
+        pending = supabase.table("profiles")\
+            .select("*")\
+            .eq("role","faculty")\
+            .eq("approved",False)\
+            .execute()
+
+        for f in pending.data:
+            col1, col2 = st.columns([3,1])
+            col1.write(f["email"])
+            if col2.button("Approve", key=f["id"]):
+                supabase.table("profiles")\
+                    .update({"approved":True})\
+                    .eq("id",f["id"])\
+                    .execute()
+                st.success("Approved")
+                st.rerun()
+
+# -----------------------------
+# FACULTY CONSOLE
+# -----------------------------
+
+def faculty_console():
+
+    st.sidebar.title("Faculty Panel")
+
+    menu = st.sidebar.radio(
+        "Navigate",
+        [
+            "Dashboard",
+            "My Courses",
+            "My Profile"
+        ]
+    )
+
+    dashboard_header()
+
+    if menu == "My Courses":
+        st.header("Assigned Courses")
+
+        user_id = st.session_state.user.id
+
+        assignments = supabase.table("course_assignments")\
+            .select("courses(title,code,semester)")\
+            .eq("faculty_id",user_id)\
+            .execute()
+
+        st.write(assignments.data)
+
+    if menu == "My Profile":
+        st.header("Faculty Profile")
+
+        user_id = st.session_state.user.id
+
+        profile = supabase.table("profiles")\
+            .select("*")\
+            .eq("id",user_id)\
+            .single()\
+            .execute()
+
+        data = profile.data
+
+        first = st.text_input("First Name", value=data.get("first_name",""))
+        last = st.text_input("Last Name", value=data.get("last_name",""))
+        designation = st.text_input("Designation", value=data.get("designation",""))
+        department = st.text_input("Department", value=data.get("department",""))
+        mobile = st.text_input("Mobile", value=data.get("mobile",""))
+        office = st.text_input("Office Address", value=data.get("office",""))
+        campus = st.text_input("Campus", value=data.get("campus",""))
+        city = st.text_input("City", value=data.get("city",""))
+        institution = st.text_input("Institution", value=data.get("institution",""))
+
+        if st.button("Update Profile"):
+            supabase.table("profiles").update({
+                "first_name": first,
+                "last_name": last,
+                "designation": designation,
+                "department": department,
+                "mobile": mobile,
+                "office": office,
+                "campus": campus,
+                "city": city,
+                "institution": institution
+            }).eq("id",user_id).execute()
+
+            st.success("Profile Updated")
+
+# -----------------------------
+# STUDENT CONSOLE
+# -----------------------------
+
+def student_console():
+
+    st.sidebar.title("Student Panel")
+
+    dashboard_header()
+
+# -----------------------------
+# ROUTER
+# -----------------------------
+
+if st.session_state.user is None:
+    login_page()
+else:
     if st.sidebar.button("Logout"):
-        supabase.auth.sign_out()
         st.session_state.user = None
-        st.session_state.profile = None
+        st.session_state.role = None
         st.rerun()
 
+    if st.session_state.role == "admin":
+        admin_console()
 
-# =========================
-# MAIN ROUTING
-# =========================
-if not st.session_state.user:
-    login()
-    st.stop()
+    elif st.session_state.role == "faculty":
+        faculty_console()
 
-profile = st.session_state.profile
-role = profile["role"]
-
-# =========================
-# SIDEBAR AFTER LOGIN
-# =========================
-st.sidebar.title("Navigation")
-st.sidebar.write(f"Role: {role}")
-
-# =========================
-# DASHBOARD HEADER (ALL ROLES)
-# =========================
-st.title("Dashboard")
-st.markdown("### You are logged in as:")
-
-if role in ["faculty", "faculty_pro"]:
-    st.write("**Faculty**")
-    st.write(f"Name: {profile.get('first_name', '')} {profile.get('last_name', '')}")
-    st.write(f"Email Address: {profile.get('email')}")
-
-elif role == "admin":
-    st.write("**Admin**")
-    st.write(f"Name: {profile.get('first_name', '')} {profile.get('last_name', '')}")
-    st.write(f"Email Address: {profile.get('email')}")
-
-elif role == "student":
-    st.write("**Student**")
-    st.write(f"Name: {profile.get('first_name', '')} {profile.get('last_name', '')}")
-    st.write(f"Enrollment Number: {profile.get('email').split('@')[0]}")
-
-st.markdown("---")
-
-# =========================
-# ROLE CONTENT
-# =========================
-if role == "admin":
-    st.subheader("Admin Console")
-
-elif role in ["faculty", "faculty_pro"]:
-    st.subheader("Faculty Console")
-
-elif role == "student":
-    st.subheader("Student Console")
-
-logout()
+    elif st.session_state.role == "student":
+        student_console()
