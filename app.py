@@ -17,36 +17,26 @@ st.set_page_config(
 )
 
 # ==============================
-# GLOBAL STYLES (UCS 2.0)
+# GLOBAL STYLES
 # ==============================
 
 st.markdown("""
 <style>
-/* Hide Streamlit Branding */
 #MainMenu {visibility:hidden;}
 footer {visibility:hidden;}
 header {visibility:hidden;}
 
-/* Sidebar */
 section[data-testid="stSidebar"] {
     background-color: #0f172a;
-    color: white;
 }
 section[data-testid="stSidebar"] * {
     color: white !important;
 }
 
-/* Main Background */
-.block-container {
-    padding-top: 2rem;
-}
-
-/* Titles */
 .main-title {
     font-size: 52px;
     font-weight: 800;
     text-align: center;
-    margin-bottom: 0px;
 }
 .sub-title {
     font-size: 18px;
@@ -55,7 +45,6 @@ section[data-testid="stSidebar"] * {
     margin-bottom: 40px;
 }
 
-/* Cards */
 .card {
     background: white;
     padding: 25px;
@@ -64,20 +53,6 @@ section[data-testid="stSidebar"] * {
     margin-bottom: 20px;
 }
 
-/* Buttons */
-.stButton > button {
-    border-radius: 8px;
-    font-weight: 600;
-    padding: 10px 18px;
-}
-
-/* Red Faculty Button */
-.red-btn button {
-    background-color: #dc2626 !important;
-    color: white !important;
-}
-
-/* Metric cards */
 .metric-card {
     background: linear-gradient(135deg,#2563eb,#1e3a8a);
     padding: 20px;
@@ -91,7 +66,10 @@ section[data-testid="stSidebar"] * {
 }
 .metric-label {
     font-size: 14px;
-    opacity: 0.9;
+}
+.red-btn button {
+    background-color:#dc2626 !important;
+    color:white !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -112,29 +90,25 @@ if "role" not in st.session_state:
 
 def login_page():
 
-    st.markdown(
-        '<div class="main-title">SylemaX</div>',
-        unsafe_allow_html=True
-    )
-    st.markdown(
-        '<div class="sub-title">Let\'s make academic management a breeze</div>',
-        unsafe_allow_html=True
-    )
+    st.markdown('<div class="main-title">SylemaX</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-title">Let\'s make academic management a breeze</div>', unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1,2,1])
 
     with col2:
+
         tab1, tab2 = st.tabs(["Login", "Faculty Registration"])
 
+        # -------- LOGIN TAB --------
         with tab1:
-            email = st.text_input("Email / Enrollment")
-            password = st.text_input("Password", type="password")
+            login_email = st.text_input("Email / Enrollment", key="login_email")
+            login_password = st.text_input("Password", type="password", key="login_password")
 
-            if st.button("Login"):
+            if st.button("Login", key="login_btn"):
                 try:
                     response = supabase.auth.sign_in_with_password({
-                        "email": email,
-                        "password": password
+                        "email": login_email,
+                        "password": login_password
                     })
                     user = response.user
 
@@ -147,31 +121,34 @@ def login_page():
                     st.session_state.user = user
                     st.session_state.role = profile.data["role"]
                     st.rerun()
-                except:
+
+                except Exception:
                     st.error("Invalid credentials")
 
+        # -------- FACULTY REGISTRATION TAB --------
         with tab2:
             st.markdown('<div class="red-btn">', unsafe_allow_html=True)
-            email = st.text_input("Faculty Email")
-            password = st.text_input("Password", type="password")
+            reg_email = st.text_input("Faculty Email", key="reg_email")
+            reg_password = st.text_input("Password", type="password", key="reg_password")
             st.markdown('</div>', unsafe_allow_html=True)
 
-            if st.button("Register Faculty"):
+            if st.button("Register Faculty", key="register_btn"):
                 try:
                     response = supabase.auth.sign_up({
-                        "email": email,
-                        "password": password
+                        "email": reg_email,
+                        "password": reg_password
                     })
 
                     supabase.table("profiles").insert({
                         "id": response.user.id,
-                        "email": email,
+                        "email": reg_email,
                         "role": "faculty",
                         "approved": False
                     }).execute()
 
                     st.success("Registration submitted for approval.")
-                except:
+
+                except Exception:
                     st.error("Registration failed.")
 
 # ==============================
@@ -194,19 +171,18 @@ def dashboard_header():
     st.markdown("## Dashboard")
     st.markdown("### You are logged in as:")
 
-    with st.container():
-        st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="card">', unsafe_allow_html=True)
 
-        st.markdown(f"**Role:** {role.capitalize()}")
+    st.markdown(f"**Role:** {role.capitalize()}")
 
-        if role == "student":
-            st.markdown(f"**Name:** {data.get('first_name','')} {data.get('last_name','')}")
-            st.markdown(f"**Enrollment Number:** {data.get('enrollment','')}")
-        else:
-            st.markdown(f"**Name:** {data.get('first_name','')} {data.get('last_name','')}")
-            st.markdown(f"**Email Address:** {data.get('email')}")
+    if role == "student":
+        st.markdown(f"**Name:** {data.get('first_name','')} {data.get('last_name','')}")
+        st.markdown(f"**Enrollment Number:** {data.get('enrollment','')}")
+    else:
+        st.markdown(f"**Name:** {data.get('first_name','')} {data.get('last_name','')}")
+        st.markdown(f"**Email Address:** {data.get('email')}")
 
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
 # ADMIN CONSOLE
@@ -218,10 +194,12 @@ def admin_console():
 
     menu = st.sidebar.radio(
         "",
-        ["Dashboard", "Courses", "Assignments", "Faculty Approvals"]
+        ["Dashboard", "Courses", "Assignments", "Faculty Approvals"],
+        key="admin_menu"
     )
 
     if menu == "Dashboard":
+
         dashboard_header()
 
         courses = supabase.table("courses").select("*").execute().data
@@ -246,13 +224,14 @@ def admin_console():
             """, unsafe_allow_html=True)
 
     if menu == "Courses":
+
         st.header("Course Management")
 
-        code = st.text_input("Course Code")
-        title = st.text_input("Course Title")
-        semester = st.text_input("Semester")
+        code = st.text_input("Course Code", key="course_code")
+        title = st.text_input("Course Title", key="course_title")
+        semester = st.text_input("Semester", key="course_sem")
 
-        if st.button("Create Course"):
+        if st.button("Create Course", key="create_course_btn"):
             supabase.table("courses").insert({
                 "code": code,
                 "title": title,
@@ -264,6 +243,7 @@ def admin_console():
         st.dataframe(courses.data)
 
     if menu == "Assignments":
+
         st.header("Assign Courses")
 
         courses = supabase.table("courses").select("*").execute().data
@@ -273,20 +253,25 @@ def admin_console():
             .eq("approved",True)\
             .execute().data
 
-        course_dict = {c["title"]: c["id"] for c in courses}
-        faculty_dict = {f["email"]: f["id"] for f in faculty}
+        if courses and faculty:
 
-        selected_course = st.selectbox("Select Course", list(course_dict.keys()))
-        selected_faculty = st.selectbox("Select Faculty", list(faculty_dict.keys()))
+            course_dict = {c["title"]: c["id"] for c in courses}
+            faculty_dict = {f["email"]: f["id"] for f in faculty}
 
-        if st.button("Assign"):
-            supabase.table("course_assignments").insert({
-                "course_id": course_dict[selected_course],
-                "faculty_id": faculty_dict[selected_faculty]
-            }).execute()
-            st.success("Assigned Successfully")
+            selected_course = st.selectbox("Select Course", list(course_dict.keys()), key="assign_course")
+            selected_faculty = st.selectbox("Select Faculty", list(faculty_dict.keys()), key="assign_faculty")
+
+            if st.button("Assign", key="assign_btn"):
+                supabase.table("course_assignments").insert({
+                    "course_id": course_dict[selected_course],
+                    "faculty_id": faculty_dict[selected_faculty]
+                }).execute()
+                st.success("Assigned Successfully")
+        else:
+            st.warning("No courses or approved faculty available.")
 
     if menu == "Faculty Approvals":
+
         st.header("Faculty Approvals")
 
         pending = supabase.table("profiles")\
@@ -295,16 +280,19 @@ def admin_console():
             .eq("approved",False)\
             .execute()
 
-        for f in pending.data:
-            col1, col2 = st.columns([4,1])
-            col1.write(f["email"])
-            if col2.button("Approve", key=f["id"]):
-                supabase.table("profiles")\
-                    .update({"approved":True})\
-                    .eq("id",f["id"])\
-                    .execute()
-                st.success("Approved")
-                st.rerun()
+        if pending.data:
+            for f in pending.data:
+                col1, col2 = st.columns([4,1])
+                col1.write(f["email"])
+                if col2.button("Approve", key=f"approve_{f['id']}"):
+                    supabase.table("profiles")\
+                        .update({"approved":True})\
+                        .eq("id",f["id"])\
+                        .execute()
+                    st.success("Approved")
+                    st.rerun()
+        else:
+            st.success("No pending approvals.")
 
 # ==============================
 # ROUTER
@@ -313,7 +301,7 @@ def admin_console():
 if st.session_state.user is None:
     login_page()
 else:
-    if st.sidebar.button("Logout"):
+    if st.sidebar.button("Logout", key="logout_btn"):
         st.session_state.user = None
         st.session_state.role = None
         st.rerun()
