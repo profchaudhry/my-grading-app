@@ -19,7 +19,7 @@ def login():
     st.markdown("<h1 style='text-align:center;'>SylemaX</h1>", unsafe_allow_html=True)
     st.markdown(
         "<h4 style='text-align:center;'>Let's Make Academic Management a Breeze</h4>",
-         "<h6 style='text-align:center;'>Version UCS1.7</h4>",
+         "<h4 style='text-align:center;'>Version UCS1.7</h4>",
         unsafe_allow_html=True
     )
     st.markdown("---")
@@ -197,4 +197,5 @@ elif role == "student":
     st.subheader("Student Console")
 
 logout()
+
 
