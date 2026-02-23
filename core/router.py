@@ -1,14 +1,17 @@
-from ui.admin import admin_console
-from ui.faculty import faculty_console
-from ui.student import student_console
-
-ROUTE_MAP = {
-    "admin": admin_console,
-    "faculty": faculty_console,
-    "student": student_console
-}
-
 def route(role):
-    console = ROUTE_MAP.get(role)
-    if console:
-        console()
+
+    if role == "admin":
+        from ui.admin import admin_console
+        admin_console()
+
+    elif role == "faculty":
+        from ui.faculty import faculty_console
+        faculty_console()
+
+    elif role == "student":
+        from ui.student import student_console
+        student_console()
+
+    else:
+        import streamlit as st
+        st.error("Invalid role configuration.")
