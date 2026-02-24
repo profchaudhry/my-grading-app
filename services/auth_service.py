@@ -1,14 +1,15 @@
 import logging
 from services.supabase_client import supabase
 from services.base_service import BaseService
-from services.faculty_service import FacultyService
-from services.student_service import StudentService
 
 logger = logging.getLogger("sylemax.auth_service")
 
 
 class AuthService(BaseService):
 
+    # ==========================================================
+    # LOGIN
+    # ==========================================================
     @staticmethod
     def login(email: str, password: str) -> dict | None:
         """
@@ -27,6 +28,7 @@ class AuthService(BaseService):
 
             user = response.user
 
+            # Fetch profile — trigger guarantees it exists after sign_up
             profile_response = (
                 supabase
                 .table("profiles")
@@ -35,28 +37,104 @@ class AuthService(BaseService):
                 .execute()
             )
 
-            if profile_response.data:
-                profile = profile_response.data[0]
-            else:
-                # No profile found → auto-create as student
-                logger.info(f"No profile found for {user.email}. Creating default student profile.")
-                profile = StudentService.ensure_profile_exists(user, role="student")
-
-            if not profile:
-                logger.error(f"Profile could not be created or retrieved for {user.email}")
+            if not profile_response.data:
+                logger.error(f"No profile found for authenticated user {email}")
                 return None
 
-            logger.info(f"Login successful for {user.email} with role '{profile.get('role')}'")
+            profile = profile_response.data[0]
+            logger.info(f"Login successful for {email} | role='{profile.get('role')}'")
+
             return {"user": user, "profile": profile}
 
         except Exception as e:
             logger.exception(f"Login error for {email}")
             return None
 
+    # ==========================================================
+    # FACULTY REGISTRATION
+    # ==========================================================
     @staticmethod
     def register_faculty(email: str, password: str) -> bool:
         """
-        Registers a new faculty user in Supabase Auth and creates a pending profile.
+        Registers a new faculty user.
+
+        Flow:
+          1. supabase.auth.sign_up() creates the auth user.
+          2. The DB trigger immediately inserts a default 'student' profile.
+          3. We update that profile to role='faculty', approved=False.
+
+        Returns True on success, False on any failure.
+        """
+        try:
+            # Step 1: Create auth user
+            response = supabase.auth.sign_up({
+                "email": email,
+                "password": password,
+            })
+
+            if not response or not response.user:
+                logger.warning(f"Faculty sign_up failed: no user returned for {email}")
+                return False
+
+            user = response.user
+
+            # Step 2: Update the trigger-created profile to faculty (pending approval)
+            update_response = (
+                supabase
+                .table("profiles")
+                .update({
+                    "role": "faculty",
+                    "approved": False,
+                    "first_name": "",
+                    "last_name": "",
+                })
+                .eq("id", user.id)
+                .execute()
+            )
+
+            if not update_response.data:
+                # Profile row may not exist yet if trigger hasn't fired —
+                # fall back to an upsert to guarantee the row is correct.
+                logger.warning(
+                    f"Profile update returned no data for {email}. "
+                    "Attempting upsert fallback."
+                )
+                upsert_response = (
+                    supabase
+                    .table("profiles")
+                    .upsert({
+                        "id": user.id,
+                        "email": email,
+                        "role": "faculty",
+                        "approved": False,
+                        "first_name": "",
+                        "last_name": "",
+                    })
+                    .execute()
+                )
+
+                if not upsert_response.data:
+                    logger.error(f"Upsert fallback also failed for {email}")
+                    return False
+
+            # Clear cache so pending faculty list reflects the new entry
+            AuthService.clear_cache()
+            logger.info(f"Faculty registration submitted successfully for {email}")
+            return True
+
+        except Exception as e:
+            logger.exception(f"Faculty registration error for {email}")
+            return False
+
+    # ==========================================================
+    # STUDENT REGISTRATION (if needed in future)
+    # ==========================================================
+    @staticmethod
+    def register_student(email: str, password: str) -> bool:
+        """
+        Registers a student. The DB trigger auto-creates a student profile
+        with approved=True, so no profile update is needed.
+
         Returns True on success, False on failure.
         """
         try:
@@ -66,28 +144,29 @@ class AuthService(BaseService):
             })
 
             if not response or not response.user:
-                logger.warning(f"Faculty registration failed: no user returned for {email}")
+                logger.warning(f"Student sign_up failed: no user returned for {email}")
                 return False
 
-            user = response.user
-
-            profile = FacultyService.ensure_profile_exists(user, role="faculty")
-
-            if not profile:
-                logger.error(f"Faculty profile creation failed for {email}")
-                return False
-
-            logger.info(f"Faculty registration submitted for {email}")
+            logger.info(f"Student registered successfully for {email}")
+            AuthService.clear_cache()
             return True
 
         except Exception as e:
-            logger.exception(f"Faculty registration error for {email}")
+            logger.exception(f"Student registration error for {email}")
             return False
 
+    # ==========================================================
+    # LOGOUT
+    # ==========================================================
     @staticmethod
     def logout() -> None:
-        """Signs out from Supabase and is safe to call even if already signed out."""
+        """
+        Signs out from Supabase. Safe to call even if already signed out.
+        Session state cleanup is handled by the caller (layout/router).
+        """
         try:
             supabase.auth.sign_out()
+            logger.info("User signed out from Supabase.")
         except Exception:
-            pass  # Sign-out errors are non-critical; session will be cleared by caller
+            # Non-critical — local session will be cleared regardless
+            logger.warning("Supabase sign_out call failed (may already be signed out).")
