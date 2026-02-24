@@ -1,11 +1,15 @@
 import streamlit as st
 import logging
 
+
 class BaseService:
 
     @staticmethod
     def clear_cache():
-        st.cache_data.clear()
+        try:
+            st.cache_data.clear()
+        except Exception:
+            pass
 
     @staticmethod
     def handle_error(e):
