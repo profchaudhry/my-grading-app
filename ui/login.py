@@ -11,56 +11,65 @@ def login_page():
         unsafe_allow_html=True
     )
 
-    tab1, tab2 = st.tabs(["Login", "Faculty Registration"])
+    auth_mode = st.radio(
+        "Select Option",
+        ["Login", "Faculty Registration"],
+        horizontal=True,
+        key="auth_mode"
+    )
 
     # ==========================
-    # LOGIN TAB
+    # LOGIN FORM
     # ==========================
-    with tab1:
+    if auth_mode == "Login":
 
-        login_email = st.text_input("Email", key="login_email")
-        login_password = st.text_input("Password", type="password", key="login_password")
+        with st.form("login_form"):
 
-        login_clicked = st.button("Login", key="login_btn")
+            login_email = st.text_input("Email", key="login_email")
+            login_password = st.text_input("Password", type="password", key="login_password")
 
-        if login_clicked:
+            submitted = st.form_submit_button("Login")
 
-            if not login_email or not login_password:
-                st.warning("Please enter email and password.")
-            else:
-                response = AuthService.login(login_email, login_password)
+            if submitted:
 
-                if not response or not response.user:
-                    st.error("Invalid credentials.")
+                if not login_email or not login_password:
+                    st.warning("Please enter email and password.")
                 else:
-                    user = response.user
-                    profile = FacultyService.get_profile(user.id)
+                    response = AuthService.login(login_email, login_password)
 
-                    if not profile:
-                        st.error("User profile not found. Contact admin.")
+                    if not response or not response.user:
+                        st.error("Invalid credentials.")
                     else:
-                        st.session_state.user = user
-                        st.session_state.role = profile["role"]
-                        st.rerun()
+                        user = response.user
+                        profile = FacultyService.get_profile(user.id)
+
+                        if not profile:
+                            st.error("User profile not found. Contact admin.")
+                        else:
+                            st.session_state.user = user
+                            st.session_state.role = profile["role"]
+                            st.rerun()
 
     # ==========================
-    # FACULTY REGISTRATION TAB
+    # REGISTRATION FORM
     # ==========================
-    with tab2:
+    else:
 
-        reg_email = st.text_input("Faculty Email", key="reg_email")
-        reg_password = st.text_input("Password", type="password", key="reg_password")
+        with st.form("registration_form"):
 
-        register_clicked = st.button("Register Faculty", key="register_btn")
+            reg_email = st.text_input("Faculty Email", key="reg_email")
+            reg_password = st.text_input("Password", type="password", key="reg_password")
 
-        if register_clicked:
+            submitted = st.form_submit_button("Register Faculty")
 
-            if not reg_email or not reg_password:
-                st.warning("Please enter email and password.")
-            else:
-                response = AuthService.register_faculty(reg_email, reg_password)
+            if submitted:
 
-                if response:
-                    st.success("Registration submitted. Await admin approval.")
+                if not reg_email or not reg_password:
+                    st.warning("Please enter email and password.")
                 else:
-                    st.error("Registration failed.")
+                    response = AuthService.register_faculty(reg_email, reg_password)
+
+                    if response:
+                        st.success("Registration submitted. Await admin approval.")
+                    else:
+                        st.error("Registration failed.")
