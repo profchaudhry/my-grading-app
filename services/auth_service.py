@@ -2,6 +2,7 @@ from services.supabase_client import supabase
 from services.base_service import BaseService
 from services.faculty_service import FacultyService
 from services.student_service import StudentService
+import logging
 
 
 class AuthService(BaseService):
@@ -13,17 +14,31 @@ class AuthService(BaseService):
                 "email": email,
                 "password": password
             })
+
             if not response or not response.user:
                 return None
+
             user = response.user
 
-            # Ensure profile exists
-            profile = FacultyService.ensure_profile_exists(user)
-            if profile:
-                return {"user": user, "profile": profile}
-            return {"user": user, "profile": None}
+            # Fetch existing profile
+            profile_response = (
+                supabase
+                .table("profiles")
+                .select("*")
+                .eq("id", user.id)
+                .execute()
+            )
 
-        except Exception:
+            if profile_response.data:
+                profile = profile_response.data[0]
+            else:
+                # If no profile exists → default student
+                profile = StudentService.ensure_profile_exists(user)
+
+            return {"user": user, "profile": profile}
+
+        except Exception as e:
+            logging.exception(e)
             return None
 
     @staticmethod
@@ -39,9 +54,10 @@ class AuthService(BaseService):
 
             user = response.user
 
-            # Create faculty profile
             FacultyService.ensure_profile_exists(user, role="faculty")
+
             return response
 
-        except Exception:
+        except Exception as e:
+            logging.exception(e)
             return None
