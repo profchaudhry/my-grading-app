@@ -7,20 +7,25 @@ import logging
 
 class AuthService(BaseService):
 
+    # ==========================================================
+    # LOGIN
+    # ==========================================================
     @staticmethod
-    def login(email, password):
+    def login(email: str, password: str):
         try:
+            # Attempt Supabase login
             response = supabase.auth.sign_in_with_password({
                 "email": email,
                 "password": password
             })
 
             if not response or not response.user:
+                logging.warning("Login failed: No user returned.")
                 return None
 
             user = response.user
 
-            # Fetch existing profile
+            # Fetch profile from DB
             profile_response = (
                 supabase
                 .table("profiles")
@@ -32,17 +37,24 @@ class AuthService(BaseService):
             if profile_response.data:
                 profile = profile_response.data[0]
             else:
-                # If no profile exists → default student
+                # If profile does not exist → default to student
+                logging.info(f"No profile found. Creating student profile for {user.email}")
                 profile = StudentService.ensure_profile_exists(user)
 
-            return {"user": user, "profile": profile}
+            return {
+                "user": user,
+                "profile": profile
+            }
 
         except Exception as e:
-            logging.exception(e)
+            logging.exception("Login error occurred.")
             return None
 
+    # ==========================================================
+    # FACULTY REGISTRATION
+    # ==========================================================
     @staticmethod
-    def register_faculty(email, password):
+    def register_faculty(email: str, password: str):
         try:
             response = supabase.auth.sign_up({
                 "email": email,
@@ -50,14 +62,18 @@ class AuthService(BaseService):
             })
 
             if not response or not response.user:
+                logging.warning("Faculty registration failed.")
                 return None
 
             user = response.user
 
+            # Create faculty profile (awaiting approval)
             FacultyService.ensure_profile_exists(user, role="faculty")
+
+            logging.info(f"Faculty registration submitted for {email}")
 
             return response
 
         except Exception as e:
-            logging.exception(e)
+            logging.exception("Faculty registration error.")
             return None
