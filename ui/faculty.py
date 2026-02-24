@@ -1,39 +1,66 @@
 import streamlit as st
 from core.layout import base_console
-from core.guards import require_role
+from core.guards import require_role, require_approval
 from services.faculty_service import FacultyService
 from ui.dashboard import render_dashboard
 
 
 @require_role(["faculty"])
-def faculty_console():
+def faculty_console() -> None:
+    """Faculty portal with dashboard, courses, and profile management."""
 
-    profile = FacultyService.get_profile(st.session_state.user.id)
+    user = st.session_state.user
+    profile = FacultyService.get_profile(user.id)
 
-    if profile and profile.get("approved") is False:
-        st.warning("Awaiting admin approval.")
-        if st.sidebar.button("Logout"):
-            st.session_state.clear()
-            st.rerun()
-        st.stop()
+    # Block unapproved faculty before rendering anything else
+    require_approval(profile)
 
-    menu = base_console("Faculty Panel", ["Dashboard", "My Courses", "My Profile"])
+    if not profile:
+        st.error("Your profile could not be loaded. Please contact support.")
+        return
 
+    menu = base_console("👨‍🏫 Faculty Panel", ["Dashboard", "My Courses", "My Profile"])
+
+    # ------------------------------------------------------------------
+    # DASHBOARD
+    # ------------------------------------------------------------------
     if menu == "Dashboard":
         render_dashboard()
 
-    if menu == "My Courses":
-        courses = FacultyService.get_assigned_courses(st.session_state.user.id)
-        st.dataframe(courses)
+    # ------------------------------------------------------------------
+    # MY COURSES
+    # ------------------------------------------------------------------
+    elif menu == "My Courses":
+        st.title("📚 My Courses")
+        with st.spinner("Loading courses..."):
+            courses = FacultyService.get_assigned_courses(user.id)
 
-    if menu == "My Profile":
+        if not courses:
+            st.info("No courses are currently assigned to you.")
+        else:
+            st.dataframe(courses, use_container_width=True)
 
-        first = st.text_input("First Name", profile.get("first_name", ""))
-        last = st.text_input("Last Name", profile.get("last_name", ""))
+    # ------------------------------------------------------------------
+    # MY PROFILE
+    # ------------------------------------------------------------------
+    elif menu == "My Profile":
+        st.title("👤 My Profile")
 
-        if st.button("Update"):
-            FacultyService.update_profile(
-                st.session_state.user.id,
-                {"first_name": first, "last_name": last}
-            )
-            st.success("Updated")
+        with st.form("profile_form"):
+            first = st.text_input("First Name", value=profile.get("first_name", ""))
+            last = st.text_input("Last Name", value=profile.get("last_name", ""))
+            submitted = st.form_submit_button("Update Profile", use_container_width=True)
+
+        if submitted:
+            if not first.strip() and not last.strip():
+                st.warning("Please enter at least a first or last name.")
+            else:
+                success = FacultyService.update_profile(
+                    user.id,
+                    {"first_name": first.strip(), "last_name": last.strip()}
+                )
+                if success:
+                    st.success("Profile updated successfully.")
+                    st.rerun()
+                else:
+                    st.error("Update failed. Please try again.")
