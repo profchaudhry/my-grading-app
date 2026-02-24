@@ -21,30 +21,27 @@ def login_page():
         login_email = st.text_input("Email", key="login_email")
         login_password = st.text_input("Password", type="password", key="login_password")
 
-        if st.button("Login", key="login_btn"):
+        login_clicked = st.button("Login", key="login_btn")
+
+        if login_clicked:
 
             if not login_email or not login_password:
                 st.warning("Please enter email and password.")
-                return
+            else:
+                response = AuthService.login(login_email, login_password)
 
-            response = AuthService.login(login_email, login_password)
+                if not response or not response.user:
+                    st.error("Invalid credentials.")
+                else:
+                    user = response.user
+                    profile = FacultyService.get_profile(user.id)
 
-            if not response or not response.user:
-                st.error("Invalid credentials.")
-                return
-
-            user = response.user
-
-            profile = FacultyService.get_profile(user.id)
-
-            if not profile:
-                st.error("User profile not found. Contact admin.")
-                return
-
-            st.session_state.user = user
-            st.session_state.role = profile["role"]
-
-            st.rerun()
+                    if not profile:
+                        st.error("User profile not found. Contact admin.")
+                    else:
+                        st.session_state.user = user
+                        st.session_state.role = profile["role"]
+                        st.rerun()
 
     # ==========================
     # FACULTY REGISTRATION TAB
@@ -54,13 +51,16 @@ def login_page():
         reg_email = st.text_input("Faculty Email", key="reg_email")
         reg_password = st.text_input("Password", type="password", key="reg_password")
 
-        if st.button("Register Faculty", key="register_btn"):
+        register_clicked = st.button("Register Faculty", key="register_btn")
+
+        if register_clicked:
 
             if not reg_email or not reg_password:
                 st.warning("Please enter email and password.")
-                return
+            else:
+                response = AuthService.register_faculty(reg_email, reg_password)
 
-            response = AuthService.register_faculty(reg_email, reg_password)
-
-            if response:
-                st.success("Registration submitted. Await admin approval.")
+                if response:
+                    st.success("Registration submitted. Await admin approval.")
+                else:
+                    st.error("Registration failed.")
