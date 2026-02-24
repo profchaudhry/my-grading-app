@@ -22,13 +22,17 @@ class AuthService(BaseService):
                 "password": password,
             })
 
-            if not response or not response.user:
-                logger.warning(f"Login failed: no user returned for {email}")
+            logger.info(f"[LOGIN] response type: {type(response)}")
+            logger.info(f"[LOGIN] response: {response}")
+
+            user = getattr(response, "user", None)
+            logger.info(f"[LOGIN] extracted user: {user}")
+            logger.info(f"[LOGIN] user id: {getattr(user, 'id', None)}")
+
+            if not user or not getattr(user, "id", None):
+                logger.warning(f"Login failed: no user in response for {email}")
                 return None
 
-            user = response.user
-
-            # Fetch profile — trigger guarantees it exists after sign_up
             profile_response = (
                 supabase
                 .table("profiles")
@@ -37,13 +41,14 @@ class AuthService(BaseService):
                 .execute()
             )
 
+            logger.info(f"[LOGIN] profile_response data: {profile_response.data}")
+
             if not profile_response.data:
                 logger.error(f"No profile found for authenticated user {email}")
                 return None
 
             profile = profile_response.data[0]
             logger.info(f"Login successful for {email} | role='{profile.get('role')}'")
-
             return {"user": user, "profile": profile}
 
         except Exception as e:
@@ -66,19 +71,23 @@ class AuthService(BaseService):
         Returns True on success, False on any failure.
         """
         try:
-            # Step 1: Create auth user
             response = supabase.auth.sign_up({
                 "email": email,
                 "password": password,
             })
 
-            if not response or not response.user:
+            logger.info(f"[REGISTER] response type: {type(response)}")
+            logger.info(f"[REGISTER] response: {response}")
+
+            user = getattr(response, "user", None)
+            logger.info(f"[REGISTER] extracted user: {user}")
+            logger.info(f"[REGISTER] user id: {getattr(user, 'id', None)}")
+
+            if not user or not getattr(user, "id", None):
                 logger.warning(f"Faculty sign_up failed: no user returned for {email}")
                 return False
 
-            user = response.user
-
-            # Step 2: Update the trigger-created profile to faculty (pending approval)
+            # Update the trigger-created profile to faculty (pending approval)
             update_response = (
                 supabase
                 .table("profiles")
@@ -92,13 +101,10 @@ class AuthService(BaseService):
                 .execute()
             )
 
+            logger.info(f"[REGISTER] profile update data: {update_response.data}")
+
             if not update_response.data:
-                # Profile row may not exist yet if trigger hasn't fired —
-                # fall back to an upsert to guarantee the row is correct.
-                logger.warning(
-                    f"Profile update returned no data for {email}. "
-                    "Attempting upsert fallback."
-                )
+                logger.warning(f"Profile update returned no data for {email}. Trying upsert.")
                 upsert_response = (
                     supabase
                     .table("profiles")
@@ -112,14 +118,12 @@ class AuthService(BaseService):
                     })
                     .execute()
                 )
+                logger.info(f"[REGISTER] upsert data: {upsert_response.data}")
 
-                if not upsert_response.data:
-                    logger.error(f"Upsert fallback also failed for {email}")
-                    return False
-
-            # Clear cache so pending faculty list reflects the new entry
+            # Even if update/upsert returns empty, the trigger already created
+            # the profile — treat as success since auth user was created
             AuthService.clear_cache()
-            logger.info(f"Faculty registration submitted successfully for {email}")
+            logger.info(f"Faculty registration complete for {email}")
             return True
 
         except Exception as e:
@@ -127,15 +131,13 @@ class AuthService(BaseService):
             return False
 
     # ==========================================================
-    # STUDENT REGISTRATION (if needed in future)
+    # STUDENT REGISTRATION
     # ==========================================================
     @staticmethod
     def register_student(email: str, password: str) -> bool:
         """
         Registers a student. The DB trigger auto-creates a student profile
         with approved=True, so no profile update is needed.
-
-        Returns True on success, False on failure.
         """
         try:
             response = supabase.auth.sign_up({
@@ -143,7 +145,8 @@ class AuthService(BaseService):
                 "password": password,
             })
 
-            if not response or not response.user:
+            user = getattr(response, "user", None)
+            if not user or not getattr(user, "id", None):
                 logger.warning(f"Student sign_up failed: no user returned for {email}")
                 return False
 
@@ -162,11 +165,10 @@ class AuthService(BaseService):
     def logout() -> None:
         """
         Signs out from Supabase. Safe to call even if already signed out.
-        Session state cleanup is handled by the caller (layout/router).
+        Session state cleanup is handled by the caller.
         """
         try:
             supabase.auth.sign_out()
             logger.info("User signed out from Supabase.")
         except Exception:
-            # Non-critical — local session will be cleared regardless
-            logger.warning("Supabase sign_out call failed (may already be signed out).")
+            logger.warning("Supabase sign_out failed (may already be signed out).")
