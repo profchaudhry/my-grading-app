@@ -1,5 +1,3 @@
-streamlit
-pandas
-supabase
-openpyxl
-python-dotenv
+streamlit>=1.35.0
+supabase>=2.0.0
+python-dotenv>=1.0.0
