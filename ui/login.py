@@ -27,7 +27,7 @@ def login_page():
             response = AuthService.login(login_email, login_password)
 
             if response and response.user:
- TEMP DEBUG LINE
+ # TEMP DEBUG LINE
     st.write("User ID:", user.id)
 
                 user = response.user
