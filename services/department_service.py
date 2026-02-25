@@ -30,30 +30,44 @@ class DepartmentService(BaseService):
         return _cached_get_all_departments()
 
     @staticmethod
-    def create(name: str, code: str) -> bool:
+    def create(data: dict) -> bool:
         try:
             response = (
                 supabase
                 .table("departments")
-                .insert({"name": name.strip(), "code": code.strip().upper()})
+                .insert({
+                    "name":       data.get("name", "").strip(),
+                    "campus":     data.get("campus", "").strip(),
+                    "school":     data.get("school", "").strip(),
+                    "department": data.get("department", "").strip(),
+                    "hod_name":   data.get("hod_name", "").strip(),
+                    "hod_email":  data.get("hod_email", "").strip(),
+                })
                 .execute()
             )
             if response.data:
                 DepartmentService.clear_cache()
-                logger.info(f"Department created: {name} ({code})")
+                logger.info(f"Department created: {data.get('name')}")
                 return True
             return False
         except Exception as e:
-            logger.exception(f"Failed to create department: {name}")
+            logger.exception(f"Failed to create department: {data.get('name')}")
             return False
 
     @staticmethod
-    def update(dept_id: str, name: str, code: str) -> bool:
+    def update(dept_id: str, data: dict) -> bool:
         try:
             response = (
                 supabase
                 .table("departments")
-                .update({"name": name.strip(), "code": code.strip().upper()})
+                .update({
+                    "name":       data.get("name", "").strip(),
+                    "campus":     data.get("campus", "").strip(),
+                    "school":     data.get("school", "").strip(),
+                    "department": data.get("department", "").strip(),
+                    "hod_name":   data.get("hod_name", "").strip(),
+                    "hod_email":  data.get("hod_email", "").strip(),
+                })
                 .eq("id", dept_id)
                 .execute()
             )
