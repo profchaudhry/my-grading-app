@@ -13,7 +13,7 @@ def _cached_get_all_users() -> list:
         response = (
             supabase
             .table("profiles")
-            .select("id, email, role, approved, first_name, last_name")
+            .select("*")
             .execute()
         )
         return response.data or []
@@ -28,7 +28,7 @@ def _cached_get_pending_faculty() -> list:
         response = (
             supabase
             .table("profiles")
-            .select("id, email, role, approved")
+            .select("*")
             .eq("role", "faculty")
             .eq("approved", False)
             .execute()
@@ -51,9 +51,9 @@ def _cached_get_system_metrics() -> dict:
         users = response.data or []
         return {
             "total_users": len(users),
-            "faculty": sum(1 for u in users if u.get("role") == "faculty"),
+            "faculty":  sum(1 for u in users if u.get("role") == "faculty"),
             "students": sum(1 for u in users if u.get("role") == "student"),
-            "admins": sum(1 for u in users if u.get("role") == "admin"),
+            "admins":   sum(1 for u in users if u.get("role") == "admin"),
         }
     except Exception as e:
         logger.exception("Failed to fetch system metrics.")
@@ -67,12 +67,56 @@ class AdminService(BaseService):
         return _cached_get_all_users()
 
     @staticmethod
+    def get_faculty_users() -> list:
+        return [u for u in _cached_get_all_users() if u.get("role") == "faculty"]
+
+    @staticmethod
+    def get_student_users() -> list:
+        return [u for u in _cached_get_all_users() if u.get("role") == "student"]
+
+    @staticmethod
     def get_pending_faculty() -> list:
         return _cached_get_pending_faculty()
 
     @staticmethod
     def get_system_metrics() -> dict:
         return _cached_get_system_metrics()
+
+    @staticmethod
+    def update_profile(user_id: str, updates: dict) -> bool:
+        """Update any profile fields for any user."""
+        try:
+            response = (
+                supabase
+                .table("profiles")
+                .update(updates)
+                .eq("id", user_id)
+                .execute()
+            )
+            if response.data:
+                AdminService.clear_cache()
+                logger.info(f"Profile updated by admin for user_id={user_id}")
+                return True
+            logger.warning(f"Profile update returned no data for user_id={user_id}")
+            return False
+        except Exception as e:
+            AdminService.handle_error(e, context="update_profile")
+            return False
+
+    @staticmethod
+    def delete_user(user_id: str) -> bool:
+        """
+        Deletes a user from auth.users (cascades to profiles automatically).
+        Uses the Supabase admin API via service role.
+        """
+        try:
+            supabase.auth.admin.delete_user(user_id)
+            AdminService.clear_cache()
+            logger.info(f"User deleted by admin: user_id={user_id}")
+            return True
+        except Exception as e:
+            AdminService.handle_error(e, context="delete_user")
+            return False
 
     @staticmethod
     def approve_faculty(user_id: str) -> bool:
@@ -88,7 +132,6 @@ class AdminService(BaseService):
                 AdminService.clear_cache()
                 logger.info(f"Faculty approved: user_id={user_id}")
                 return True
-            logger.warning(f"Approve faculty returned no data for user_id={user_id}")
             return False
         except Exception as e:
             AdminService.handle_error(e, context="approve_faculty")
@@ -97,19 +140,10 @@ class AdminService(BaseService):
     @staticmethod
     def reject_faculty(user_id: str) -> bool:
         try:
-            response = (
-                supabase
-                .table("profiles")
-                .delete()
-                .eq("id", user_id)
-                .execute()
-            )
-            if response.data is not None:
-                AdminService.clear_cache()
-                logger.info(f"Faculty rejected and removed: user_id={user_id}")
-                return True
-            logger.warning(f"Reject faculty returned unexpected response for user_id={user_id}")
-            return False
+            supabase.table("profiles").delete().eq("id", user_id).execute()
+            AdminService.clear_cache()
+            logger.info(f"Faculty rejected: user_id={user_id}")
+            return True
         except Exception as e:
             AdminService.handle_error(e, context="reject_faculty")
             return False
@@ -118,7 +152,7 @@ class AdminService(BaseService):
     def update_role(user_id: str, new_role: str) -> bool:
         from core.permissions import VALID_ROLES
         if new_role not in VALID_ROLES:
-            logger.warning(f"Attempted to set invalid role '{new_role}' for user_id={user_id}")
+            logger.warning(f"Invalid role '{new_role}' for user_id={user_id}")
             return False
         try:
             response = (
@@ -130,9 +164,7 @@ class AdminService(BaseService):
             )
             if response.data:
                 AdminService.clear_cache()
-                logger.info(f"Role updated to '{new_role}' for user_id={user_id}")
                 return True
-            logger.warning(f"Role update returned no data for user_id={user_id}")
             return False
         except Exception as e:
             AdminService.handle_error(e, context="update_role")
