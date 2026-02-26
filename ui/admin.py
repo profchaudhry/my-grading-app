@@ -14,6 +14,7 @@ from services.supabase_client import supabase
 from ui.styles import section_header
 from ui.components import render_change_password
 from ui.admin_gradebook import render_admin_gradebook
+from ui.reports import render_admin_reports
 from ui.upro_grade import render_upro_grade
 from ui.bulk_enrollment import render_bulk_enrollment
 import logging
@@ -409,6 +410,7 @@ def admin_console() -> None:
             "📋 Bulk Enrollment",
             "📒 Gradebook",
             "🏆 UPro Grade",
+            "📈 Reports",
             "👨‍🏫 Faculty",
             "🎓 Students",
             "✅ Pending Approvals",
@@ -425,7 +427,8 @@ def admin_console() -> None:
     elif menu == "📒 Gradebook":          render_admin_gradebook()
     elif menu == "🏆 UPro Grade":
         _render_admin_upro()
-        elif menu == "👨‍🏫 Faculty":          _render_users("faculty")
+        elif menu == "📈 Reports":            render_admin_reports()
+    elif menu == "👨‍🏫 Faculty":          _render_users("faculty")
     elif menu == "🎓 Students":         _render_users("student")
     elif menu == "✅ Pending Approvals": _render_pending_approvals()
     elif menu == "🔒 Change Password":
