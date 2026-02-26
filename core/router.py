@@ -25,6 +25,10 @@ def route(role: str | None) -> None:
         from ui.admin import admin_console
         admin_console()
 
+    elif role == "faculty_ultra":
+        from ui.faculty_ultra import faculty_ultra_console
+        faculty_ultra_console()
+
     elif role == "faculty":
         from ui.faculty import faculty_console
         faculty_console()
