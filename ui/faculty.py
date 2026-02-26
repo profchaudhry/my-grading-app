@@ -6,6 +6,7 @@ from services.course_service import CourseService
 from services.semester_service import SemesterService
 from ui.dashboard import render_dashboard
 from ui.components import render_change_password
+from ui.bulk_enrollment import render_bulk_enrollment
 from ui.styles import section_header
 
 
@@ -28,6 +29,7 @@ def faculty_console() -> None:
         [
             "📊 Dashboard",
             "📚 My Courses",
+            "📋 Bulk Enrollment",
             "👤 My Profile",
             "🔒 Change Password",
         ]
@@ -49,16 +51,14 @@ def faculty_console() -> None:
         active_sem = SemesterService.get_active()
 
         if sems:
-            sem_map   = {s["name"]: s["id"] for s in sems}
-            sem_names = list(sem_map.keys())
-            default   = active_sem["name"] if active_sem and active_sem["name"] in sem_names \
-                        else sem_names[0]
-            sel_sem_name = st.selectbox(
-                "Semester", sem_names,
-                index=sem_names.index(default),
-                key="faculty_sem_filter"
-            )
-            sel_sem_id = sem_map[sel_sem_name]
+            sem_map      = {s["name"]: s["id"] for s in sems}
+            sem_names    = list(sem_map.keys())
+            default      = active_sem["name"] if active_sem \
+                           and active_sem["name"] in sem_names else sem_names[0]
+            sel_sem_name = st.selectbox("Semester", sem_names,
+                                         index=sem_names.index(default),
+                                         key="faculty_sem_filter")
+            sel_sem_id   = sem_map[sel_sem_name]
         else:
             sel_sem_id = None
 
@@ -73,16 +73,35 @@ def faculty_console() -> None:
                 course   = a.get("courses", {}) or {}
                 dept     = (course.get("departments") or {}).get("name", "—")
                 enrolled = CourseService.get_enrollment_count(course["id"])
+                cid      = course.get("course_id", "—")
                 with st.expander(
                     f"📘 **{course.get('code','—')}** — {course.get('name','—')} "
-                    f"| {dept} | {enrolled} enrolled"
+                    f"| ID: `{cid}` | {dept} | {enrolled} enrolled"
                 ):
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("Credits",      course.get("credits", "—"))
-                    c2.metric("Max Students", course.get("max_students", "—"))
-                    c3.metric("Enrolled",     enrolled)
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Course ID",    cid)
+                    c2.metric("Credits",      course.get("credits", "—"))
+                    c3.metric("Max Students", course.get("max_students", "—"))
+                    c4.metric("Enrolled",     enrolled)
                     if course.get("description"):
                         st.markdown(f"**Description:** {course['description']}")
+
+    # ==============================================================
+    # BULK ENROLLMENT
+    # ==============================================================
+    elif menu == "📋 Bulk Enrollment":
+        # Build the set of course_ids this faculty is allowed to upload to
+        all_assignments  = CourseService.get_faculty_courses(user.id)
+        allowed_cids     = {
+            a["courses"]["course_id"]
+            for a in all_assignments
+            if a.get("courses") and a["courses"].get("course_id")
+        }
+        render_bulk_enrollment(
+            domain_default="um.ar",
+            allowed_course_ids=allowed_cids,
+            role="faculty",
+        )
 
     # ==============================================================
     # MY PROFILE
@@ -95,7 +114,6 @@ def faculty_console() -> None:
             profile = fresh
             st.session_state.profile = fresh
 
-        # ── Read-only (admin-only fields) ──
         section_header("Identity", "These fields can only be updated by an administrator")
         c1, c2 = st.columns(2)
         c1.markdown(f"**First Name:** {profile.get('first_name','—') or '—'}")
@@ -104,8 +122,6 @@ def faculty_console() -> None:
         c2.markdown(f"**Email:** {user.email}")
 
         st.divider()
-
-        # ── Editable fields ──
         section_header("Profile Details", "Update your contact and academic information")
 
         with st.form("faculty_profile_form"):
