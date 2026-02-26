@@ -9,8 +9,10 @@ from services.semester_service import SemesterService
 from services.course_service import CourseService
 from services.enrollment_service import EnrollmentService
 from services.student_bulk_service import StudentBulkService
+from services.profile_service import ProfileService
 from services.supabase_client import supabase
 from ui.styles import section_header
+from ui.components import render_change_password
 import logging
 
 logger = logging.getLogger("sylemax.admin_ui")
@@ -27,29 +29,32 @@ def _full_name(profile: dict) -> str:
 
 
 def _faculty_edit_form(user: dict, form_key: str) -> dict | None:
+    """
+    Admin can edit ALL faculty fields including first/last name and employee ID.
+    """
     with st.form(form_key):
-        section_header("Credentials")
+        section_header("Identity (Admin Only)")
         c1, c2 = st.columns(2)
-        first         = c1.text_input("First Name",   value=user.get("first_name","") or "")
-        last          = c2.text_input("Last Name",    value=user.get("last_name", "") or "")
-        employee_id   = c1.text_input("Employee ID",  value=user.get("employee_id","") or "")
+        first         = c1.text_input("First Name",  value=user.get("first_name","") or "")
+        last          = c2.text_input("Last Name",   value=user.get("last_name", "") or "")
+        employee_id   = c1.text_input("Employee ID", value=user.get("employee_id","") or "")
         qualification = c2.text_input("Qualification (e.g. PhD, MSc)",
                                        value=user.get("qualification","") or "")
         st.divider()
         section_header("Contact Information")
         c3, c4 = st.columns(2)
-        phone   = c3.text_input("Phone Number",    value=user.get("phone","")  or "")
+        phone   = c3.text_input("Phone Number",    value=user.get("phone","") or "")
         office  = c4.text_input("Office Location", value=user.get("office_location","") or "")
         address = st.text_input("Address",          value=user.get("address","") or "")
         st.divider()
         section_header("Academic Information")
         specialization = st.text_input("Specialization / Subject Area",
                                         value=user.get("specialization","") or "")
-        publications   = st.text_area("Publications", value=user.get("publications","") or "",
-                                       height=80)
+        publications   = st.text_area("Publications",
+                                       value=user.get("publications","") or "", height=80)
         st.divider()
         section_header("Account")
-        c5, c6 = st.columns(2)
+        c5, c6   = st.columns(2)
         role     = c5.selectbox("Role", VALID_ROLES,
                                  index=VALID_ROLES.index(user.get("role","faculty"))
                                  if user.get("role") in VALID_ROLES else 1)
@@ -68,11 +73,12 @@ def _faculty_edit_form(user: dict, form_key: str) -> dict | None:
 
 
 def _student_edit_form(user: dict, form_key: str) -> dict | None:
+    """Admin can edit ALL student fields."""
     with st.form(form_key):
-        section_header("Credentials")
+        section_header("Identity (Admin Only)")
         c1, c2 = st.columns(2)
-        first         = c1.text_input("First Name",  value=user.get("first_name","") or "")
-        last          = c2.text_input("Last Name",   value=user.get("last_name", "") or "")
+        first         = c1.text_input("First Name", value=user.get("first_name","") or "")
+        last          = c2.text_input("Last Name",  value=user.get("last_name", "") or "")
         enrollment_no = c1.text_input("Enrollment Number",
                                        value=user.get("enrollment_number","") or "")
         program       = c2.text_input("Program / Degree", value=user.get("program","") or "")
@@ -110,34 +116,55 @@ def _student_edit_form(user: dict, form_key: str) -> dict | None:
     return None
 
 
-def _reset_password(user_id: str, user_email: str, new_password: str) -> bool:
-    try:
-        supabase.auth.admin.update_user_by_id(user_id, {"password": new_password})
-        supabase.table("profiles")\
-            .update({"force_password_change": True})\
-            .eq("id", user_id)\
-            .execute()
-        AdminService.clear_cache()
-        logger.info(f"Password reset by admin for {user_email}")
-        return True
-    except Exception as e:
-        logger.exception(f"Password reset failed for {user_email}")
-        return False
+def _reset_password_form(user: dict) -> None:
+    uid   = user["id"]
+    email = user.get("email","")
+    with st.form(f"reset_form_{uid}"):
+        new_pass     = st.text_input("New Password",     type="password")
+        confirm_pass = st.text_input("Confirm Password", type="password")
+        c1, c2 = st.columns(2)
+        save   = c1.form_submit_button("🔑 Reset Password", use_container_width=True)
+        cancel = c2.form_submit_button("Cancel",            use_container_width=True)
+
+    if cancel:
+        del st.session_state[f"resetting_{uid}"]
+        st.rerun()
+
+    if save:
+        if not new_pass or not confirm_pass:
+            st.error("Both fields are required.")
+        elif len(new_pass) < 8:
+            st.error("Password must be at least 8 characters.")
+        elif new_pass != confirm_pass:
+            st.error("Passwords do not match.")
+        else:
+            try:
+                supabase.auth.admin.update_user_by_id(uid, {"password": new_pass})
+                supabase.table("profiles")\
+                    .update({"force_password_change": True})\
+                    .eq("id", uid).execute()
+                AdminService.clear_cache()
+                st.success(f"Password reset. User will be prompted to change it on next login.")
+                del st.session_state[f"resetting_{uid}"]
+                st.rerun()
+            except Exception as e:
+                logger.exception(f"Password reset failed for {email}")
+                st.error("Reset failed. Please try again.")
 
 
 def _render_user_card(user: dict, role_type: str) -> None:
-    uid       = user["id"]
-    name      = _full_name(user)
-    email     = user.get("email", "—")
-    approved  = user.get("approved", False)
-    edit_key  = f"editing_{uid}"
-    reset_key = f"resetting_{uid}"
-    status_icon = "✅" if approved else "⏳"
+    uid          = user["id"]
+    name         = _full_name(user)
+    email        = user.get("email", "—")
+    approved     = user.get("approved", False)
+    edit_key     = f"editing_{uid}"
+    reset_key    = f"resetting_{uid}"
+    status_icon  = "✅" if approved else "⏳"
 
     with st.expander(f"{status_icon} **{name}** — {email}"):
 
+        # ── VIEW mode ──────────────────────────────────────────────
         if not st.session_state.get(edit_key) and not st.session_state.get(reset_key):
-            # ── View mode ──
             if role_type == "faculty":
                 c1, c2, c3 = st.columns(3)
                 c1.markdown(f"**Employee ID:** {user.get('employee_id','—') or '—'}")
@@ -166,12 +193,10 @@ def _render_user_card(user: dict, role_type: str) -> None:
             if col_edit.button("✏️ Edit", key=f"edit_btn_{uid}", use_container_width=True):
                 st.session_state[edit_key] = True
                 st.rerun()
-
             if col_reset.button("🔑 Reset Password", key=f"reset_btn_{uid}",
                                   use_container_width=True):
                 st.session_state[reset_key] = True
                 st.rerun()
-
             if col_del.button("🗑️ Delete", key=f"del_btn_{uid}",
                                use_container_width=True, type="secondary"):
                 st.session_state[f"confirm_delete_{uid}"] = True
@@ -191,7 +216,7 @@ def _render_user_card(user: dict, role_type: str) -> None:
                     del st.session_state[f"confirm_delete_{uid}"]
                     st.rerun()
 
-        # ── Edit mode ──
+        # ── EDIT mode ──────────────────────────────────────────────
         elif st.session_state.get(edit_key):
             if role_type == "faculty":
                 data = _faculty_edit_form(user, f"edit_form_{uid}")
@@ -210,43 +235,20 @@ def _render_user_card(user: dict, role_type: str) -> None:
                 del st.session_state[edit_key]
                 st.rerun()
 
-        # ── Reset password mode ──
+        # ── RESET PASSWORD mode ────────────────────────────────────
         elif st.session_state.get(reset_key):
             st.markdown(f"**Reset password for:** {email}")
-            with st.form(f"reset_form_{uid}"):
-                new_pass     = st.text_input("New Password",     type="password")
-                confirm_pass = st.text_input("Confirm Password", type="password")
-                c1, c2 = st.columns(2)
-                save   = c1.form_submit_button("🔑 Reset Password", use_container_width=True)
-                cancel = c2.form_submit_button("Cancel",            use_container_width=True)
-
-            if save:
-                if not new_pass or not confirm_pass:
-                    st.error("Both fields are required.")
-                elif len(new_pass) < 8:
-                    st.error("Password must be at least 8 characters.")
-                elif new_pass != confirm_pass:
-                    st.error("Passwords do not match.")
-                else:
-                    if _reset_password(uid, email, new_pass):
-                        st.success(f"Password reset. User will be prompted to change it on next login.")
-                        del st.session_state[reset_key]
-                        st.rerun()
-                    else:
-                        st.error("Reset failed.")
-            if cancel:
-                del st.session_state[reset_key]
-                st.rerun()
+            _reset_password_form(user)
 
 
 # ================================================================
-# BULK STUDENT UPLOAD SECTION
+# BULK STUDENT UPLOAD
 # ================================================================
 
 def _render_bulk_upload() -> None:
     st.title("📤 Bulk Student Upload")
 
-    sems   = SemesterService.get_all()
+    sems    = SemesterService.get_all()
     courses = CourseService.get_all()
 
     if not sems:
@@ -266,96 +268,72 @@ def _render_bulk_upload() -> None:
         - `Full Name` — e.g. `John Smith`
     - Student email will be: `{enrollment_number}@{domain}`
     - Temporary password: **ChangeYourPassword**
-    - Students will be forced to change it on first login
+    - Students will be prompted to change it on first login.
     """)
-
     st.divider()
 
-    # Settings
     c1, c2 = st.columns(2)
     domain = c1.text_input("Email Domain", value="um.ar",
                              placeholder="e.g. university.edu",
-                             help="Enrollment number + @domain = student email")
+                             help="Creates: enrollment@domain")
 
-    enroll_in_course = c2.checkbox("Also enroll students in a course", value=False)
-
-    course_id   = None
-    semester_id = None
+    enroll_in_course = c2.checkbox("Also enroll students in a course")
+    course_id = semester_id = None
 
     if enroll_in_course:
         cc1, cc2 = st.columns(2)
-        sel_course  = cc1.selectbox("Course", list(course_map.keys()))
+        sel_course  = cc1.selectbox("Course",   list(course_map.keys()))
         sel_sem     = cc2.selectbox("Semester", list(sem_map.keys()))
         course_id   = course_map[sel_course]
         semester_id = sem_map[sel_sem]
 
     st.divider()
-
     uploaded_file = st.file_uploader(
-        "Upload Excel or CSV file",
-        type=["xlsx", "xls", "csv"],
-        key="bulk_upload_file"
+        "Upload Excel or CSV", type=["xlsx","xls","csv"], key="bulk_upload_file"
     )
 
-    if not uploaded_file:
+    if not uploaded_file or not domain.strip():
         return
 
-    if not domain.strip():
-        st.error("Please enter an email domain.")
-        return
-
-    # Parse the file
     df, error = StudentBulkService.parse_excel(uploaded_file)
-
     if error:
         st.error(f"❌ {error}")
         return
 
-    # Preview
-    st.success(f"✅ File parsed successfully — {len(df)} students found.")
+    st.success(f"✅ {len(df)} students found in file.")
     st.divider()
     section_header("Preview", "Review before creating accounts")
 
-    # Check which already exist
-    existing = StudentBulkService.check_existing_enrollments(
-        df["enrollment_number"].tolist()
-    )
-
-    preview_df = df.copy()
+    existing    = StudentBulkService.check_existing_enrollments(df["enrollment_number"].tolist())
+    preview_df  = df.copy()
     preview_df["Email"]  = preview_df["enrollment_number"].apply(
-        lambda e: StudentBulkService.build_email(e, domain)
-    )
+        lambda e: StudentBulkService.build_email(e, domain))
     preview_df["Status"] = preview_df["enrollment_number"].apply(
-        lambda e: "⚠️ Already exists" if e in existing else "✅ New"
-    )
-    preview_df.columns = ["Enrollment Number", "Full Name", "Email", "Status"]
+        lambda e: "⚠️ Already exists" if e in existing else "✅ New")
+    preview_df.columns   = ["Enrollment Number","Full Name","Email","Status"]
 
     st.dataframe(preview_df, use_container_width=True, hide_index=True)
 
-    new_count = len(preview_df[preview_df["Status"] == "✅ New"])
+    new_count  = len(preview_df[preview_df["Status"] == "✅ New"])
     skip_count = len(existing)
-
-    col1, col2 = st.columns(2)
-    col1.metric("New accounts to create", new_count)
-    col2.metric("Already exist (will skip)", skip_count)
+    c1, c2     = st.columns(2)
+    c1.metric("New accounts to create", new_count)
+    c2.metric("Already exist (skip)",   skip_count)
 
     if new_count == 0:
-        st.warning("All students in this file already have accounts. Nothing to create.")
+        st.warning("All students already have accounts.")
         return
 
     st.divider()
-
-    if st.button(f"🚀 Create {new_count} Student Account(s)", type="primary",
-                  use_container_width=True):
+    if st.button(f"🚀 Create {new_count} Student Account(s)",
+                  type="primary", use_container_width=True):
         with st.spinner(f"Creating {new_count} accounts..."):
             created, skipped, errors = StudentBulkService.create_student_accounts(
-                df, domain, course_id, semester_id
-            )
-
+                df, domain, course_id, semester_id)
         if created:
-            st.success(f"✅ {created} account(s) created successfully.")
+            st.success(f"✅ {created} account(s) created.")
         if skipped:
-            st.info(f"⏭️ {skipped} skipped (already exist).")
+            st.info(f"⏭️ {skipped} skipped.")
         if errors:
             st.error(f"❌ {len(errors)} error(s):")
             for err in errors:
@@ -363,7 +341,7 @@ def _render_bulk_upload() -> None:
 
 
 # ================================================================
-# COURSE ENROLLMENT MANAGEMENT
+# ENROLLMENT MANAGEMENT
 # ================================================================
 
 def _render_enrollment_management() -> None:
@@ -384,38 +362,33 @@ def _render_enrollment_management() -> None:
     sel_sem_name = st.selectbox("Semester", sem_names,
                                  index=sem_names.index(default), key="enroll_sem")
     sel_sem_id   = sem_map[sel_sem_name]
+    sem_courses  = [c for c in courses if c.get("semester_id") == sel_sem_id]
 
-    sem_courses = [c for c in courses if c.get("semester_id") == sel_sem_id]
     if not sem_courses:
         st.info("No courses for this semester.")
         return
 
-    course_map   = {f"{c['code']} — {c['name']}": c for c in sem_courses}
+    course_map       = {f"{c['code']} — {c['name']}": c for c in sem_courses}
     sel_course_label = st.selectbox("Course", list(course_map.keys()), key="enroll_course")
-    sel_course   = course_map[sel_course_label]
-    course_id    = sel_course["id"]
+    sel_course       = course_map[sel_course_label]
+    course_id        = sel_course["id"]
 
     tab_enrolled, tab_add = st.tabs(["📋 Enrolled Students", "➕ Add Student"])
 
     with tab_enrolled:
         enrollments = EnrollmentService.get_course_enrollments(course_id)
         if not enrollments:
-            st.info("No students enrolled in this course yet.")
+            st.info("No students enrolled yet.")
         else:
-            section_header(f"Enrolled Students", f"{len(enrollments)} student(s)")
+            section_header("Enrolled Students", f"{len(enrollments)} student(s)")
             for e in enrollments:
-                profile = e.get("profiles", {}) or {}
-                name    = _full_name(profile)
-                enroll  = profile.get("enrollment_number","—")
-                program = profile.get("program","—")
-                c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
-                c1.write(f"**{name}**")
-                c2.write(enroll)
-                c3.write(program or "—")
-                if c4.button("Drop", key=f"drop_{e['id']}_{course_id}"):
-                    if EnrollmentService.drop_student(
-                        profile["id"], course_id, sel_sem_id
-                    ):
+                p = e.get("profiles", {}) or {}
+                c1, c2, c3, c4 = st.columns([3,2,2,1])
+                c1.write(f"**{_full_name(p)}**")
+                c2.write(p.get("enrollment_number","—"))
+                c3.write(p.get("program","—"))
+                if c4.button("Drop", key=f"drop_{e['id']}"):
+                    if EnrollmentService.drop_student(p["id"], course_id, sel_sem_id):
                         st.success("Student dropped.")
                         st.rerun()
                 st.divider()
@@ -428,19 +401,19 @@ def _render_enrollment_management() -> None:
             if e.get("profiles")
         }
         available = [s for s in all_students if s["id"] not in enrolled_ids]
-
         if not available:
-            st.info("All students are already enrolled in this course.")
+            st.info("All students are already enrolled.")
         else:
             student_map = {
                 f"{_full_name(s)} — {s.get('enrollment_number','') or s['email']}": s["id"]
                 for s in available
             }
-            sel_student_label = st.selectbox("Select Student", list(student_map.keys()))
+            sel_label = st.selectbox("Select Student", list(student_map.keys()))
             if st.button("➕ Enroll Student", use_container_width=True):
-                sid = student_map[sel_student_label]
-                if EnrollmentService.enroll_student(sid, course_id, sel_sem_id):
-                    st.success("Student enrolled successfully.")
+                if EnrollmentService.enroll_student(
+                    student_map[sel_label], course_id, sel_sem_id
+                ):
+                    st.success("Enrolled.")
                     st.rerun()
                 else:
                     st.error("Enrollment failed.")
@@ -465,6 +438,7 @@ def admin_console() -> None:
             "👨‍🏫 Faculty",
             "🎓 Students",
             "✅ Pending Approvals",
+            "🔒 Change Password",
         ]
     )
 
@@ -477,6 +451,10 @@ def admin_console() -> None:
     elif menu == "👨‍🏫 Faculty":          _render_users("faculty")
     elif menu == "🎓 Students":         _render_users("student")
     elif menu == "✅ Pending Approvals": _render_pending_approvals()
+    elif menu == "🔒 Change Password":
+        st.title("🔒 Change Password")
+        st.divider()
+        render_change_password()
 
 
 # ================================================================
@@ -511,8 +489,7 @@ def _render_dashboard() -> None:
                 [{"Department": d["name"], "Campus": d.get("campus","—"),
                   "School": d.get("school","—"), "HoD": d.get("hod_name","—")}
                  for d in depts],
-                use_container_width=True, hide_index=True,
-            )
+                use_container_width=True, hide_index=True)
         else:
             st.info("No departments yet.")
     with col_b:
@@ -523,8 +500,7 @@ def _render_dashboard() -> None:
                 [{"Name": s["name"], "Start": s["start_date"],
                   "End": s["end_date"], "Active": "✅" if s["is_active"] else "—"}
                  for s in sems],
-                use_container_width=True, hide_index=True,
-            )
+                use_container_width=True, hide_index=True)
         else:
             st.info("No semesters yet.")
 
@@ -533,13 +509,13 @@ def _render_departments() -> None:
     st.title("🏛️ Departments")
     with st.expander("➕ Add New Department", expanded=False):
         with st.form("add_dept_form"):
-            c1, c2    = st.columns(2)
-            d_campus  = c1.text_input("Campus",     placeholder="e.g. Main Campus")
-            d_school  = c2.text_input("School",     placeholder="e.g. School of Engineering")
-            d_dept    = st.text_input("Department", placeholder="e.g. Computer Science")
-            c3, c4    = st.columns(2)
+            c1, c2      = st.columns(2)
+            d_campus    = c1.text_input("Campus",     placeholder="e.g. Main Campus")
+            d_school    = c2.text_input("School",     placeholder="e.g. School of Engineering")
+            d_dept      = st.text_input("Department", placeholder="e.g. Computer Science")
+            c3, c4      = st.columns(2)
             d_hod_name  = c3.text_input("HoD Name",  placeholder="e.g. Dr. John Smith")
-            d_hod_email = c4.text_input("HoD Email", placeholder="e.g. jsmith@university.edu")
+            d_hod_email = c4.text_input("HoD Email", placeholder="e.g. j.smith@university.edu")
             if st.form_submit_button("Create Department", use_container_width=True):
                 if not d_dept or not d_campus:
                     st.warning("Campus and Department are required.")
@@ -555,9 +531,8 @@ def _render_departments() -> None:
     st.divider()
     depts = DepartmentService.get_all()
     if not depts:
-        st.info("No departments yet. Add one above.")
+        st.info("No departments found.")
         return
-
     for dept in depts:
         with st.expander(
             f"🏛️ **{dept['name']}** — {dept.get('campus','—')} | {dept.get('school','—')}"
@@ -579,15 +554,13 @@ def _render_departments() -> None:
                 if DepartmentService.delete(dept["id"]):
                     st.success("Deleted.")
                     st.rerun()
-                else:
-                    st.error("Delete failed.")
             if st.session_state.get(edit_key):
                 with st.form(f"edit_dept_form_{dept['id']}"):
-                    c1, c2       = st.columns(2)
-                    new_campus   = c1.text_input("Campus",     value=dept.get("campus",""))
-                    new_school   = c2.text_input("School",     value=dept.get("school",""))
-                    new_dept     = st.text_input("Department", value=dept.get("department",""))
-                    c3, c4       = st.columns(2)
+                    c1, c2        = st.columns(2)
+                    new_campus    = c1.text_input("Campus",     value=dept.get("campus",""))
+                    new_school    = c2.text_input("School",     value=dept.get("school",""))
+                    new_dept      = st.text_input("Department", value=dept.get("department",""))
+                    c3, c4        = st.columns(2)
                     new_hod_name  = c3.text_input("HoD Name",  value=dept.get("hod_name",""))
                     new_hod_email = c4.text_input("HoD Email", value=dept.get("hod_email",""))
                     s1, s2 = st.columns(2)
@@ -627,23 +600,33 @@ def _render_semesters() -> None:
                     st.error("Failed. Name may already exist.")
 
     st.divider()
+    section_header("All Semesters")
+
     sems = SemesterService.get_all()
     if not sems:
         st.info("No semesters yet.")
         return
+
     for sem in sems:
         with st.container():
-            c1, c2, c3, c4, c5 = st.columns([3, 2, 2, 1, 1])
+            c1, c2, c3, c4, c5 = st.columns([3, 2, 2, 2, 1])
             c1.write(f"**{sem['name']}**")
-            c2.write(sem["start_date"])
-            c3.write(sem["end_date"])
+            c2.write(f"📅 {sem['start_date']}")
+            c3.write(f"📅 {sem['end_date']}")
+
             if sem["is_active"]:
                 c4.markdown("✅ **Active**")
             else:
-                if c4.button("Activate", key=f"act_sem_{sem['id']}"):
-                    if SemesterService.set_active(sem["id"]):
-                        st.success(f"'{sem['name']}' activated.")
+                if c4.button("▶ Activate", key=f"act_sem_{sem['id']}",
+                              use_container_width=True, type="primary"):
+                    with st.spinner("Activating..."):
+                        ok = SemesterService.set_active(sem["id"])
+                    if ok:
+                        st.success(f"'{sem['name']}' is now the active semester.")
                         st.rerun()
+                    else:
+                        st.error("Activation failed. Check Supabase logs.")
+
             if not sem["is_active"]:
                 if c5.button("🗑️", key=f"del_sem_{sem['id']}"):
                     SemesterService.delete(sem["id"])
@@ -667,6 +650,7 @@ def _render_courses() -> None:
     active_sem  = SemesterService.get_active()
     sem_names   = list(sem_map.keys())
     default_sem = active_sem["name"] if active_sem and active_sem["name"] in sem_names else sem_names[0]
+
     sel_sem_name = st.selectbox("Filter by Semester", sem_names,
                                  index=sem_names.index(default_sem), key="course_sem_filter")
     sel_sem_id   = sem_map[sel_sem_name]
@@ -678,8 +662,7 @@ def _render_courses() -> None:
             c_code = c2.text_input("Course Code", placeholder="e.g. CS201")
             c3, c4 = st.columns(2)
             c_dept = c3.selectbox("Department", list(dept_map.keys()))
-            c_sem  = c4.selectbox("Semester", sem_names,
-                                   index=sem_names.index(sel_sem_name))
+            c_sem  = c4.selectbox("Semester", sem_names, index=sem_names.index(sel_sem_name))
             c5, c6 = st.columns(2)
             c_credits  = c5.number_input("Credits",      min_value=1, max_value=6, value=3)
             c_max_stud = c6.number_input("Max Students", min_value=1, max_value=500, value=40)
@@ -696,7 +679,6 @@ def _render_courses() -> None:
 
     st.divider()
 
-    # Faculty map for assignment
     all_users    = AdminService.get_all_users()
     faculty_list = [u for u in all_users if u.get("role") == "faculty" and u.get("approved")]
     faculty_map  = {f"{_full_name(u)} ({u['email']})": u["id"] for u in faculty_list}
@@ -712,31 +694,27 @@ def _render_courses() -> None:
         dept_name = (course.get("departments") or {}).get("name", "—")
         enrolled  = CourseService.get_enrollment_count(course["id"])
         with st.expander(
-            f"📘 **{course['code']}** — {course['name']}  "
+            f"📘 **{course['code']}** — {course['name']} "
             f"| {dept_name} | {course['credits']} cr "
             f"| {enrolled}/{course['max_students']} enrolled"
         ):
-            col1, col2 = st.columns(2)
-            col1.markdown(f"**Description:** {course.get('description') or '—'}")
-            col2.markdown(f"**Max Students:** {course['max_students']}")
+            c1, c2 = st.columns(2)
+            c1.markdown(f"**Description:** {course.get('description') or '—'}")
+            c2.markdown(f"**Max Students:** {course['max_students']}")
 
-            # ── Assigned Faculty ──
             st.markdown("**👨‍🏫 Assigned Faculty:**")
             assigned = CourseService.get_assigned_faculty(course["id"])
             if assigned:
                 for a in assigned:
-                    p     = a.get("profiles", {}) or {}
-                    fname = _full_name(p) if p else "—"
+                    p = a.get("profiles", {}) or {}
                     ca, cb = st.columns([5, 1])
-                    ca.write(f"👨‍🏫 {fname}")
+                    ca.write(f"👨‍🏫 {_full_name(p) if p else '—'}")
                     if cb.button("Remove", key=f"unassign_{course['id']}_{a['faculty_id']}"):
                         CourseService.unassign_faculty(course["id"], a["faculty_id"])
-                        st.success("Faculty removed.")
                         st.rerun()
             else:
                 st.caption("No faculty assigned yet.")
 
-            # ── Assign Faculty Form ──
             if faculty_map:
                 with st.form(f"assign_form_{course['id']}"):
                     sel_f = st.selectbox("Assign Faculty", list(faculty_map.keys()),
@@ -745,10 +723,8 @@ def _render_courses() -> None:
                         if CourseService.assign_faculty(course["id"], faculty_map[sel_f]):
                             st.success("Faculty assigned.")
                             st.rerun()
-                        else:
-                            st.error("Assignment failed.")
             else:
-                st.caption("No approved faculty available to assign.")
+                st.caption("No approved faculty available.")
 
             st.divider()
             if st.button("🗑️ Delete Course", key=f"del_course_{course['id']}",
@@ -759,7 +735,7 @@ def _render_courses() -> None:
 
 
 def _render_users(role_type: str) -> None:
-    title  = "👨‍🏫 Faculty Management" if role_type == "faculty" else "🎓 Student Management"
+    title = "👨‍🏫 Faculty Management" if role_type == "faculty" else "🎓 Student Management"
     st.title(title)
 
     users = AdminService.get_faculty_users() if role_type == "faculty" \
@@ -771,16 +747,16 @@ def _render_users(role_type: str) -> None:
 
     search = st.text_input(
         "🔍 Search by name, email" + (", or enrollment number" if role_type == "student" else ""),
-        placeholder="Type to filter...",
-        key=f"{role_type}_search"
+        placeholder="Type to filter...", key=f"{role_type}_search"
     )
     if search:
+        q = search.lower()
         users = [
             u for u in users
-            if search.lower() in u.get("email","").lower()
-            or search.lower() in _full_name(u).lower()
+            if q in u.get("email","").lower()
+            or q in _full_name(u).lower()
             or (role_type == "student" and
-                search.lower() in (u.get("enrollment_number","") or "").lower())
+                q in (u.get("enrollment_number","") or "").lower())
         ]
 
     if role_type == "faculty":
@@ -813,10 +789,11 @@ def _render_pending_approvals() -> None:
     for user in pending:
         with st.container():
             c1, c2, c3 = st.columns([5, 1, 1])
-            c1.write(f"📧 **{user.get('email')}**")
+            c1.write(f"📧 **{user.get('email','—')}**  "
+                     f"| {_full_name(user) or '—'}")
             if c2.button("✅ Approve", key=f"approve_{user['id']}"):
                 if AdminService.approve_faculty(user["id"]):
-                    st.success(f"Approved.")
+                    st.success("Approved.")
                     st.rerun()
             if c3.button("❌ Reject", key=f"reject_{user['id']}"):
                 if AdminService.reject_faculty(user["id"]):
