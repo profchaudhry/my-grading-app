@@ -6,6 +6,7 @@ from services.enrollment_service import EnrollmentService
 from ui.dashboard import render_dashboard
 from ui.components import render_change_password
 from services.grading_service import GradingService, score_to_letter
+from services.upro_service import UProService
 from ui.styles import section_header
 
 
@@ -21,6 +22,8 @@ def student_console() -> None:
             "📊 Dashboard",
             "📚 My Courses",
             "📊 My Grades",
+            "🏆 UPro Grades",
+            "🏷️ My Syndicate",
             "👤 My Profile",
             "🔒 Change Password",
         ]
@@ -114,6 +117,120 @@ def student_console() -> None:
                         f"**GPA Points:** {g.get('gpa_points','—')} &nbsp;&nbsp;"
                         f"**Credits:** {course.get('credits','—')}"
                     )
+
+
+    # ==============================================================
+    # UPRO GRADES (released AOL grades)
+    # ==============================================================
+    elif menu == "🏆 UPro Grades":
+        st.title("🏆 UPro Grades")
+        aol_grades = UProService.get_student_aol_grades(user.id)
+        if not aol_grades:
+            st.info("No UPro grades have been released yet.")
+        else:
+            from ui.styles import section_header
+            section_header("Released UPro (AOL) Grades")
+            for g in aol_grades:
+                course = g.get("courses", {}) or {}
+                letter = g.get("letter_grade") or "—"
+                total  = g.get("grand_total")
+                icons  = {"A":"🟢","A-":"🟢","B+":"🔵","B":"🔵","B-":"🔵",
+                           "C+":"🟡","C":"🟡","C-":"🟡","D+":"🟠","D":"🟠","F":"🔴"}
+                icon   = icons.get(letter,"⚪")
+                with st.expander(
+                    f"{icon} **{course.get('code','—')}** — {course.get('name','—')} "
+                    f"| Grade: **{letter}** | Total: {f'{total:.2f}' if total else '—'}"
+                ):
+                    c1, c2, c3, c4, c5 = st.columns(5)
+                    c1.metric("Quiz",       f"{g.get('quiz_total','—')}")
+                    c2.metric("Assignment", f"{g.get('assignment_total','—')}")
+                    c3.metric("Midterm",    f"{g.get('midterm_total','—')}")
+                    c4.metric("Final",      f"{g.get('final_total','—')}")
+                    c5.metric("Total",      f"{total:.2f}" if total else "—")
+                    st.markdown(f"**Letter Grade:** {icon} **{letter}** | **GPA:** {g.get('gpa_points','—')}")
+
+    # ==============================================================
+    # MY SYNDICATE
+    # ==============================================================
+    elif menu == "🏷️ My Syndicate":
+        st.title("🏷️ My Syndicate")
+
+        from services.enrollment_service import EnrollmentService
+        from ui.styles import section_header
+
+        enrollments = EnrollmentService.get_student_enrollments(user.id)
+        if not enrollments:
+            st.info("You are not enrolled in any courses.")
+        else:
+            course_map = {
+                f"{e['courses']['code']} — {e['courses']['name']}": e["courses"]
+                for e in enrollments if e.get("courses")
+            }
+            sel_label   = st.selectbox("Select Course", list(course_map.keys()))
+            course      = course_map[sel_label]
+            course_uuid = course["id"]
+
+            # Check existing syndicate
+            membership = UProService.get_student_syndicate(course_uuid, user.id)
+            if membership:
+                syn = membership.get("syndicates", {}) or {}
+                status = syn.get("status","—")
+                status_icons = {"confirmed":"✅","pending":"⏳","rejected":"❌"}
+                st.info(
+                    f"You are in syndicate: **{syn.get('name','—')}** | "
+                    f"Status: {status_icons.get(status,'')} {status.capitalize()}"
+                )
+                members = UProService.get_syndicate_members(membership["syndicate_id"])
+                if members:
+                    section_header("Syndicate Members")
+                    for m in members:
+                        mp = m.get("profiles",{}) or {}
+                        is_lead = mp.get("id") == syn.get("lead_student_id")
+                        st.caption(f"{'👑 Lead: ' if is_lead else '👤 '}{(mp.get('full_name') or mp.get('first_name',''))} `{mp.get('enrollment_number','')}`")
+            else:
+                st.warning("You are not in a syndicate for this course yet.")
+                st.divider()
+                section_header("Submit Syndicate Details",
+                                "Submit your syndicate name and lead for faculty confirmation")
+                with st.form("submit_syndicate_form"):
+                    syn_name  = st.text_input("Syndicate Name", placeholder="e.g. Alpha Team")
+                    lead_name = st.text_input(
+                        "Syndicate Lead Name",
+                        placeholder="Enter the full name of the syndicate lead",
+                        help="Must be an enrolled student in this course"
+                    )
+                    st.caption("Your submission will be reviewed and confirmed by faculty.")
+                    submitted = st.form_submit_button("Submit Syndicate", use_container_width=True)
+
+                if submitted:
+                    if not syn_name or not lead_name:
+                        st.error("Both syndicate name and lead name are required.")
+                    else:
+                        # Try to find lead in enrolled students
+                        enrolled = EnrollmentService.get_course_enrollments(course_uuid)
+                        lead_profile = None
+                        for e in enrolled:
+                            p = e.get("profiles",{}) or {}
+                            pname = (p.get("full_name") or f"{p.get('first_name','')} {p.get('last_name','')}").strip().lower()
+                            if pname == lead_name.strip().lower():
+                                lead_profile = p
+                                break
+
+                        result = UProService.create_syndicate(
+                            course_uuid, syn_name,
+                            lead_student_id=lead_profile["id"] if lead_profile else None,
+                            created_by_role="student",
+                            status="pending",
+                        )
+                        if result:
+                            # Add submitting student as first member
+                            UProService.add_member(result["id"], course_uuid, user.id)
+                            st.success(
+                                "✅ Syndicate submitted! It will appear here once faculty confirms it."
+                            )
+                            st.rerun()
+                        else:
+                            st.error("❌ Submission failed. A syndicate with this name may already exist.")
 
 
     # ==============================================================
