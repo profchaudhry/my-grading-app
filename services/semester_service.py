@@ -57,10 +57,10 @@ class SemesterService(BaseService):
                 supabase
                 .table("semesters")
                 .insert({
-                    "name": name.strip(),
+                    "name":       name.strip(),
                     "start_date": start_date,
-                    "end_date": end_date,
-                    "is_active": False,
+                    "end_date":   end_date,
+                    "is_active":  False,
                 })
                 .execute()
             )
@@ -75,11 +75,18 @@ class SemesterService(BaseService):
 
     @staticmethod
     def set_active(semester_id: str) -> bool:
-        """Deactivates all semesters then activates the selected one."""
+        """
+        Deactivates ALL semesters first, then activates the selected one.
+        Uses two separate queries to avoid RLS or filter issues.
+        """
         try:
-            # Deactivate all
-            supabase.table("semesters").update({"is_active": False}).neq("id", "").execute()
-            # Activate selected
+            # Step 1: Deactivate all semesters
+            supabase.table("semesters")\
+                .update({"is_active": False})\
+                .neq("id", "00000000-0000-0000-0000-000000000000")\
+                .execute()
+
+            # Step 2: Activate the selected one
             response = (
                 supabase
                 .table("semesters")
@@ -87,11 +94,28 @@ class SemesterService(BaseService):
                 .eq("id", semester_id)
                 .execute()
             )
+
+            SemesterService.clear_cache()
+
             if response.data:
-                SemesterService.clear_cache()
                 logger.info(f"Semester activated: {semester_id}")
                 return True
+
+            # Even if data is empty, the update may have worked — verify
+            verify = (
+                supabase
+                .table("semesters")
+                .select("is_active")
+                .eq("id", semester_id)
+                .execute()
+            )
+            if verify.data and verify.data[0].get("is_active"):
+                logger.info(f"Semester activation verified: {semester_id}")
+                return True
+
+            logger.warning(f"Semester activation unconfirmed for: {semester_id}")
             return False
+
         except Exception as e:
             logger.exception(f"Failed to activate semester: {semester_id}")
             return False
