@@ -1,695 +1,707 @@
 """
-UPro Grade UI — used by faculty_ultra and admin consoles.
-Tabs: Syndicates | UPro Scores | AOL Gradebook | AOL Config
+UProService — Syndicate management, UPro scores, AOL generation.
 """
-import streamlit as st
-import pandas as pd
+import logging
+import random
 import json
-from services.upro_service import UProService
-from services.grading_service import GradingService, score_to_letter, suggest_grade_change
-from services.enrollment_service import EnrollmentService
-from ui.styles import section_header
+from typing import Optional
+import streamlit as st
+from services.supabase_client import supabase
+from services.base_service import BaseService
+from services.grading_service import GradingService, score_to_letter
+from config import CACHE_TTL
+
+logger = logging.getLogger("sylemax.upro_service")
 
 
 # ── Helpers ───────────────────────────────────────────────────────
 
-def _pname(p: dict) -> str:
-    if not p:
-        return "—"
-    full = (p.get("full_name") or "").strip()
-    if full:
-        return full
-    return f"{p.get('first_name','')} {p.get('last_name','')}".strip() or "—"
+def _distribute_marks(total: float, parts: int, max_per_part: list[float]) -> list[int]:
+    """
+    Distribute `total` into `parts` integer values summing to round(total),
+    each <= max_per_part[i].  Returns a list of ints.
+    """
+    target = round(total)
+    if parts == 0 or target == 0:
+        return [0] * parts
 
+    # Start with zeros, then randomly add marks
+    result = [0] * parts
+    remaining = target
 
-def _grade_icon(letter: str) -> str:
-    if not letter:
-        return "⚪"
-    if letter.startswith("A"):  return "🟢"
-    if letter.startswith("B"):  return "🔵"
-    if letter.startswith("C"):  return "🟡"
-    if letter.startswith("D"):  return "🟠"
-    return "🔴"
+    # Clamp target to possible max
+    possible_max = sum(int(m) for m in max_per_part)
+    remaining = min(remaining, possible_max)
 
+    indices = list(range(parts))
+    random.shuffle(indices)
 
-# ── Main renderer ─────────────────────────────────────────────────
-
-def render_upro_grade(course_uuid: str, course_info: dict, is_admin: bool = False) -> None:
-    scheme   = GradingService.get_effective_scheme(course_uuid)
-    max_quiz = float(scheme["weight_quiz"])
-    max_asgn = float(scheme["weight_assignment"])
-    max_mid  = float(scheme["weight_midterm"])
-    max_fin  = float(scheme["weight_final"])
-
-    enrollments = EnrollmentService.get_course_enrollments(course_uuid)
-    if not enrollments:
-        st.warning("No students enrolled in this course.")
-        return
-
-    enrolled_profiles = [e["profiles"] for e in enrollments if e.get("profiles")]
-    student_map = {_pname(p): p for p in enrolled_profiles}
-
-    tab_syn, tab_scores, tab_aol, tab_cfg = st.tabs([
-        "👥 Syndicates",
-        "📝 UPro Scores",
-        "📊 AOL Gradebook",
-        "⚙️ AOL Config",
-    ])
-
-    # ══════════════════════════════════════════════════════════════
-    # TAB 1 — SYNDICATES
-    # ══════════════════════════════════════════════════════════════
-    with tab_syn:
-        _render_syndicates(course_uuid, enrolled_profiles, student_map, is_admin)
-
-    # ══════════════════════════════════════════════════════════════
-    # TAB 2 — UPRO SCORES
-    # ══════════════════════════════════════════════════════════════
-    with tab_scores:
-        _render_upro_scores(
-            course_uuid, enrolled_profiles,
-            max_quiz, max_asgn, max_mid, max_fin
-        )
-
-    # ══════════════════════════════════════════════════════════════
-    # TAB 3 — AOL GRADEBOOK
-    # ══════════════════════════════════════════════════════════════
-    with tab_aol:
-        _render_aol_gradebook(course_uuid, course_info, scheme, is_admin)
-
-    # ══════════════════════════════════════════════════════════════
-    # TAB 4 — AOL CONFIG
-    # ══════════════════════════════════════════════════════════════
-    with tab_cfg:
-        _render_aol_config(course_uuid)
-
-
-# ── SYNDICATES ────────────────────────────────────────────────────
-
-def _render_syndicates(course_uuid, enrolled_profiles, student_map, is_admin):
-    st.subheader("👥 Syndicate Management")
-
-    syndicates = UProService.get_syndicates(course_uuid)
-
-    # ── Pending submissions (from students) ────────────────────
-    pending = [s for s in syndicates if s["status"] == "pending"]
-    if pending:
-        section_header("⏳ Pending Student Submissions", f"{len(pending)} awaiting confirmation")
-        for syn in pending:
-            lead_p  = syn.get("profiles") or {}
-            lead_nm = _pname(lead_p) if lead_p else "—"
-            members = UProService.get_syndicate_members(syn["id"])
-            with st.expander(f"📋 **{syn['name']}** — Lead: {lead_nm} | {len(members)} member(s)"):
-                st.caption(f"Submitted by student | Members: {', '.join(_pname(m.get('profiles',{})) for m in members)}")
-                c1, c2 = st.columns(2)
-                if c1.button("✅ Confirm", key=f"confirm_syn_{syn['id']}", use_container_width=True):
-                    if UProService.confirm_syndicate(syn["id"]):
-                        st.success("Confirmed.")
-                        st.rerun()
-                if c2.button("❌ Reject",  key=f"reject_syn_{syn['id']}", use_container_width=True):
-                    if UProService.reject_syndicate(syn["id"]):
-                        st.warning("Rejected.")
-                        st.rerun()
-        st.divider()
-
-    # ── Create new syndicate ───────────────────────────────────
-    with st.expander("➕ Create New Syndicate", expanded=False):
-        with st.form("create_syn_form"):
-            syn_name = st.text_input("Syndicate Name", placeholder="e.g. Alpha Team")
-            lead_label = st.selectbox(
-                "Syndicate Lead (enrolled student)",
-                ["— None —"] + list(student_map.keys()),
-                key="syn_lead_sel"
-            )
-            if st.form_submit_button("Create Syndicate", use_container_width=True):
-                if not syn_name:
-                    st.error("Syndicate name is required.")
-                else:
-                    lead_id = student_map[lead_label]["id"] if lead_label != "— None —" else None
-                    result  = UProService.create_syndicate(
-                        course_uuid, syn_name, lead_id,
-                        created_by_role="admin" if is_admin else "faculty_ultra",
-                        status="confirmed"
-                    )
-                    if result:
-                        st.success(f"✅ Syndicate '{syn_name}' created.")
-                        st.rerun()
-                    else:
-                        st.error("❌ Failed. Name may already exist.")
-
-    st.divider()
-
-    # ── Confirmed syndicates ───────────────────────────────────
-    confirmed = [s for s in syndicates if s["status"] == "confirmed"]
-    section_header("✅ Confirmed Syndicates", f"{len(confirmed)}")
-
-    # Track which students are already assigned
-    assigned_student_ids: set[str] = set()
-    for syn in confirmed:
-        for m in UProService.get_syndicate_members(syn["id"]):
-            assigned_student_ids.add(m["student_id"])
-
-    if not confirmed:
-        st.info("No confirmed syndicates yet.")
-    else:
-        for syn in confirmed:
-            members = UProService.get_syndicate_members(syn["id"])
-            lead_p  = syn.get("profiles") or {}
-            with st.expander(
-                f"🏷️ **{syn['name']}** | Lead: {_pname(lead_p) or '—'} | {len(members)} member(s)"
-            ):
-                # Member list
-                if members:
-                    for m in members:
-                        mp = m.get("profiles", {}) or {}
-                        c1, c2 = st.columns([6,1])
-                        is_lead = mp.get("id") == syn.get("lead_student_id")
-                        c1.markdown(
-                            f"{'👑 ' if is_lead else '👤 '}"
-                            f"**{_pname(mp)}** `{mp.get('enrollment_number','')}`"
-                            + (" *(Lead)*" if is_lead else "")
-                        )
-                        if c2.button("Remove", key=f"rm_mem_{syn['id']}_{mp.get('id')}"):
-                            UProService.remove_member(syn["id"], mp["id"])
-                            st.rerun()
-                else:
-                    st.caption("No members yet.")
-
-                st.divider()
-                # Add members
-                available = [
-                    p for p in enrolled_profiles
-                    if p["id"] not in {m["student_id"] for m in members}
-                ]
-                if available:
-                    with st.form(f"add_mem_{syn['id']}"):
-                        add_sel = st.selectbox(
-                            "Add Student",
-                            [_pname(p) for p in available],
-                            key=f"add_mem_sel_{syn['id']}"
-                        )
-                        if st.form_submit_button("➕ Add Member", use_container_width=True):
-                            target = next(p for p in available if _pname(p) == add_sel)
-                            if UProService.add_member(syn["id"], course_uuid, target["id"]):
-                                st.success(f"✅ {add_sel} added.")
-                                st.rerun()
-                            else:
-                                st.error("Failed. Student may already be in another syndicate.")
-
-                # Edit lead
-                with st.form(f"edit_lead_{syn['id']}"):
-                    member_profiles = [m.get("profiles",{}) for m in members]
-                    if member_profiles:
-                        lead_options = [_pname(p) for p in member_profiles]
-                        current_lead = next(
-                            (i for i, p in enumerate(member_profiles)
-                             if p.get("id") == syn.get("lead_student_id")), 0
-                        )
-                        new_lead_sel = st.selectbox("Change Lead", lead_options,
-                                                     index=current_lead, key=f"cl_{syn['id']}")
-                        if st.form_submit_button("Update Lead"):
-                            new_lead = next(p for p in member_profiles if _pname(p) == new_lead_sel)
-                            UProService.update_syndicate(syn["id"], {"lead_student_id": new_lead["id"]})
-                            st.success("Lead updated.")
-                            st.rerun()
-
-                # Delete syndicate
-                st.divider()
-                if st.button("🗑️ Delete Syndicate", key=f"del_syn_{syn['id']}",
-                              type="secondary"):
-                    UProService.delete_syndicate(syn["id"])
-                    st.rerun()
-
-    # ── Unassigned students ────────────────────────────────────
-    unassigned = [p for p in enrolled_profiles if p["id"] not in assigned_student_ids]
-    if unassigned:
-        st.divider()
-        section_header("⚠️ Unassigned Students", f"{len(unassigned)} not in any syndicate")
-        for p in unassigned:
-            st.caption(f"• {_pname(p)} `{p.get('enrollment_number','')}`")
-
-
-# ── UPRO SCORES ───────────────────────────────────────────────────
-
-def _render_upro_scores(course_uuid, enrolled_profiles, max_quiz, max_asgn, max_mid, max_fin):
-    st.subheader("📝 UPro Score Entry")
-    st.caption(
-        f"Max marks from grading scheme — "
-        f"Quiz: **{max_quiz}** | Assignment: **{max_asgn}** | "
-        f"Midterm: **{max_mid}** | Final: **{max_fin}**"
-    )
-
-    syndicates = [s for s in UProService.get_syndicates(course_uuid)
-                  if s["status"] == "confirmed"]
-
-    if not syndicates:
-        st.warning("No confirmed syndicates yet. Set up syndicates first.")
-        return
-
-    tab_asgn_sc, tab_quiz_sc, tab_mid_sc, tab_fin_sc = st.tabs([
-        "📄 Assignments", "📝 Quizzes", "📘 Midterm", "📗 Final"
-    ])
-
-    # ── Assignments (group entry, individual edit) ─────────────
-    with tab_asgn_sc:
-        section_header("Assignment Scores",
-                        "Enter group score — auto-fills all members, edit individually")
-        syn_labels = [s["name"] for s in syndicates]
-        sel_syn_name = st.selectbox("Select Syndicate", syn_labels, key="upro_asgn_syn")
-        sel_syn = next(s for s in syndicates if s["name"] == sel_syn_name)
-        members = UProService.get_syndicate_members(sel_syn["id"])
-
-        if not members:
-            st.info("No members in this syndicate.")
+    for i in indices:
+        cap = min(int(max_per_part[i]), remaining)
+        if i == indices[-1]:
+            result[i] = remaining  # give rest to last
         else:
-            group_val = st.number_input(
-                f"Group Assignment Score (out of {max_asgn})",
-                min_value=0.0, max_value=max_asgn,
-                value=0.0, step=0.5, key="upro_asgn_group"
-            )
-            apply_group = st.button("Apply to all members ↓", key="upro_asgn_apply")
+            val = random.randint(0, cap)
+            result[i] = val
+            remaining -= val
+        if remaining <= 0:
+            break
 
-            st.divider()
-            with st.form("upro_asgn_form"):
-                entries = {}
-                for m in members:
-                    mp  = m.get("profiles", {}) or {}
-                    sid = mp["id"]
-                    existing = UProService.get_student_upro_score(course_uuid, sid)
-                    default_val = (
-                        group_val if apply_group
-                        else float(existing["assignment_score"])
-                        if existing and existing.get("assignment_score") is not None
-                        else 0.0
-                    )
-                    is_lead = sid == sel_syn.get("lead_student_id")
-                    entries[sid] = st.number_input(
-                        f"{'👑 ' if is_lead else '👤 '}{_pname(mp)} "
-                        f"`{mp.get('enrollment_number','')}`",
-                        min_value=0.0, max_value=max_asgn,
-                        value=default_val, step=0.5,
-                        key=f"upro_asgn_{sid}"
-                    )
-                if st.form_submit_button("💾 Save Assignment Scores", use_container_width=True):
-                    all_ok = True
-                    for sid, val in entries.items():
-                        existing = UProService.get_student_upro_score(course_uuid, sid)
-                        ok = UProService.save_upro_score(
-                            course_uuid, sid,
-                            syndicate_id=sel_syn["id"],
-                            quiz_score=existing["quiz_score"] if existing else None,
-                            assignment_score=val,
-                            midterm_score=existing["midterm_score"] if existing else None,
-                            final_score=existing["final_score"] if existing else None,
-                        )
-                        if not ok:
-                            all_ok = False
-                    if all_ok:
-                        st.success("✅ Assignment scores saved.")
-                    else:
-                        st.error("❌ Some saves failed.")
-
-    # ── Quizzes (individual per member) ───────────────────────
-    with tab_quiz_sc:
-        section_header("Quiz Scores", "Individual score per student")
-        syn_labels = [s["name"] for s in syndicates]
-        sel_syn_name = st.selectbox("Select Syndicate", syn_labels, key="upro_quiz_syn")
-        sel_syn = next(s for s in syndicates if s["name"] == sel_syn_name)
-        members = UProService.get_syndicate_members(sel_syn["id"])
-
-        if not members:
-            st.info("No members in this syndicate.")
+    # Clamp negatives (edge case)
+    result = [max(0, v) for v in result]
+    # Fix rounding drift
+    diff = target - sum(result)
+    for i in range(abs(diff)):
+        idx = i % parts
+        if diff > 0:
+            result[idx] = min(result[idx] + 1, int(max_per_part[idx]))
         else:
-            with st.form("upro_quiz_form"):
-                entries = {}
-                for m in members:
-                    mp  = m.get("profiles", {}) or {}
-                    sid = mp["id"]
-                    existing = UProService.get_student_upro_score(course_uuid, sid)
-                    default_val = float(existing["quiz_score"]) \
-                                  if existing and existing.get("quiz_score") is not None \
-                                  else 0.0
-                    is_lead = sid == sel_syn.get("lead_student_id")
-                    entries[sid] = st.number_input(
-                        f"{'👑 ' if is_lead else '👤 '}{_pname(mp)} "
-                        f"`{mp.get('enrollment_number','')}`",
-                        min_value=0.0, max_value=max_quiz,
-                        value=default_val, step=0.5,
-                        key=f"upro_quiz_{sid}"
-                    )
-                if st.form_submit_button("💾 Save Quiz Scores", use_container_width=True):
-                    all_ok = True
-                    for sid, val in entries.items():
-                        existing = UProService.get_student_upro_score(course_uuid, sid)
-                        ok = UProService.save_upro_score(
-                            course_uuid, sid,
-                            syndicate_id=sel_syn["id"],
-                            quiz_score=val,
-                            assignment_score=existing["assignment_score"] if existing else None,
-                            midterm_score=existing["midterm_score"] if existing else None,
-                            final_score=existing["final_score"] if existing else None,
-                        )
-                        if not ok:
-                            all_ok = False
-                    if all_ok:
-                        st.success("✅ Quiz scores saved.")
-                    else:
-                        st.error("❌ Some saves failed.")
+            result[idx] = max(result[idx] - 1, 0)
 
-    # ── Midterm (individual) ───────────────────────────────────
-    with tab_mid_sc:
-        section_header("Midterm Scores", "Individual score per student")
-        _render_individual_exam_scores(
-            course_uuid, enrolled_profiles, syndicates,
-            component="midterm", max_val=max_mid, key_prefix="mid"
-        )
-
-    # ── Final (individual) ────────────────────────────────────
-    with tab_fin_sc:
-        section_header("Final Scores", "Individual score per student")
-        _render_individual_exam_scores(
-            course_uuid, enrolled_profiles, syndicates,
-            component="final", max_val=max_fin, key_prefix="fin"
-        )
+    return result
 
 
-def _render_individual_exam_scores(course_uuid, enrolled_profiles, syndicates,
-                                    component, max_val, key_prefix):
-    entry_mode = st.radio(
-        "Entry mode", ["📋 Table (all students)", "👤 Individual"],
-        horizontal=True, key=f"{key_prefix}_mode"
-    )
+class UProService(BaseService):
 
-    if entry_mode == "📋 Table (all students)":
-        rows = []
-        existing_map = {}
-        for p in enrolled_profiles:
-            s = UProService.get_student_upro_score(course_uuid, p["id"])
-            existing_map[p["id"]] = s
-            rows.append({
-                "student_id":     p["id"],
-                "Name":           _pname(p),
-                "Enrollment No":  p.get("enrollment_number","—"),
-                "Score":          float(s[f"{component}_score"])
-                                  if s and s.get(f"{component}_score") is not None
-                                  else 0.0,
-            })
-        df = pd.DataFrame(rows)
-        edited = st.data_editor(
-            df[["Name","Enrollment No","Score"]],
-            column_config={
-                "Name":          st.column_config.TextColumn(disabled=True),
-                "Enrollment No": st.column_config.TextColumn(disabled=True),
-                "Score":         st.column_config.NumberColumn(
-                                     f"Score (out of {max_val})",
-                                     min_value=0.0, max_value=max_val, step=0.5),
-            },
-            use_container_width=True, hide_index=True,
-            key=f"{key_prefix}_table"
-        )
-        if st.button(f"💾 Save All {component.title()} Scores",
-                      use_container_width=True, type="primary",
-                      key=f"save_{key_prefix}_table"):
-            saved = 0
-            for i, row in edited.iterrows():
-                sid      = df.iloc[i]["student_id"]
-                existing = existing_map.get(sid)
-                syn_id   = existing["syndicate_id"] if existing else None
-                ok = UProService.save_upro_score(
-                    course_uuid, sid, syndicate_id=syn_id,
-                    **{
-                        "quiz_score":       existing["quiz_score"] if existing else None,
-                        "assignment_score": existing["assignment_score"] if existing else None,
-                        "midterm_score":    existing["midterm_score"] if existing else None,
-                        "final_score":      existing["final_score"] if existing else None,
-                        f"{component}_score": float(row["Score"]),
-                    }
-                )
-                if ok:
-                    saved += 1
-            st.success(f"✅ Saved {saved} {component} score(s).")
+    # ── Syndicate CRUD ────────────────────────────────────────────
 
-    else:  # Individual
-        sel_label = st.selectbox(
-            "Select Student",
-            [_pname(p) for p in enrolled_profiles],
-            key=f"{key_prefix}_sel"
-        )
-        p        = next(pr for pr in enrolled_profiles if _pname(pr) == sel_label)
-        sid      = p["id"]
-        existing = UProService.get_student_upro_score(course_uuid, sid)
-        default  = float(existing[f"{component}_score"]) \
-                   if existing and existing.get(f"{component}_score") is not None else 0.0
-
-        with st.form(f"{key_prefix}_ind_form"):
-            val = st.number_input(
-                f"{component.title()} Score for {_pname(p)} (out of {max_val})",
-                min_value=0.0, max_value=max_val, value=default, step=0.5
-            )
-            if st.form_submit_button(f"💾 Save {component.title()} Score",
-                                      use_container_width=True):
-                syn_id = existing["syndicate_id"] if existing else None
-                ok = UProService.save_upro_score(
-                    course_uuid, sid, syndicate_id=syn_id,
-                    quiz_score=existing["quiz_score"] if existing else None,
-                    assignment_score=existing["assignment_score"] if existing else None,
-                    midterm_score=existing["midterm_score"] if existing else None,
-                    final_score=existing["final_score"] if existing else None,
-                    **{f"{component}_score": val},
-                )
-                if ok:
-                    st.success(f"✅ {component.title()} score saved for {_pname(p)}.")
-                else:
-                    st.error("❌ Save failed.")
-
-
-# ── AOL GRADEBOOK ─────────────────────────────────────────────────
-
-def _render_aol_gradebook(course_uuid, course_info, scheme, is_admin):
-    st.subheader("📊 AOL Gradebook")
-
-    # Generation controls
-    with st.expander("🔄 Generate AOL Gradebook", expanded=True):
-        st.caption("Select which components to include in this generation run.")
-        c1, c2, c3, c4 = st.columns(4)
-        inc_quiz = c1.checkbox("📝 Quizzes",     value=True, key="aol_inc_quiz")
-        inc_asgn = c2.checkbox("📄 Assignments", value=True, key="aol_inc_asgn")
-        inc_mid  = c3.checkbox("📘 Midterm",     value=True, key="aol_inc_mid")
-        inc_fin  = c4.checkbox("📗 Final",       value=True, key="aol_inc_fin")
-
-        components = []
-        if inc_quiz: components.append("quiz")
-        if inc_asgn: components.append("assignment")
-        if inc_mid:  components.append("midterm")
-        if inc_fin:  components.append("final")
-
-        if st.button("🔄 Generate AOL Gradebook", type="primary",
-                      use_container_width=True, key="aol_gen_btn"):
-            if not components:
-                st.error("Select at least one component.")
-            else:
-                with st.spinner("Generating..."):
-                    ok, msg, count = UProService.generate_aol(course_uuid, components)
-                if ok:
-                    st.success(f"✅ {msg}")
-                    st.rerun()
-                else:
-                    st.error(f"❌ {msg}")
-
-    st.divider()
-
-    aol_rows = UProService.get_aol_gradebook(course_uuid)
-    if not aol_rows:
-        st.info("No AOL data generated yet.")
-        return
-
-    cfg = UProService.get_aol_config(course_uuid)
-
-    section_header("Results", f"{len(aol_rows)} student(s)")
-
-    # Summary table
-    rows = []
-    for g in aol_rows:
-        p      = g.get("profiles", {}) or {}
-        letter = g.get("letter_grade") or "—"
-        total  = g.get("grand_total")
-        syn    = (g.get("syndicates") or {}).get("name","—")
-        suggs  = suggest_grade_change(total, scheme) if total is not None else []
-        rows.append({
-            "Name":         _pname(p),
-            "Enrollment":   p.get("enrollment_number","—"),
-            "Syndicate":    syn,
-            "Quiz":         g.get("quiz_total","—"),
-            "Assignment":   g.get("assignment_total","—"),
-            "Midterm":      g.get("midterm_total","—"),
-            "Final":        g.get("final_total","—"),
-            "Total":        f"{total:.2f}" if total is not None else "—",
-            "Grade":        f"{_grade_icon(letter)} {letter}",
-            "GPA":          g.get("gpa_points","—"),
-            "Suggestions":  " | ".join(suggs) if suggs else "—",
-            "Status":       g.get("status","—").capitalize(),
-        })
-
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    # Breakdown expanders
-    with st.expander("🔍 Detailed Breakdown per Student"):
-        sel_name = st.selectbox("Select Student", [r["Name"] for r in rows],
-                                 key="aol_detail_sel")
-        g = next((x for x in aol_rows if _pname(x.get("profiles",{})) == sel_name), None)
-        if g:
-            p = g.get("profiles", {}) or {}
-            st.markdown(
-                f"**{_pname(p)}** | Enroll: `{p.get('enrollment_number','')}` | "
-                f"Syndicate: {(g.get('syndicates') or {}).get('name','—')}"
-            )
-            sub_c1, sub_c2, sub_c3, sub_c4 = st.columns(4)
-            _show_breakdown(sub_c1, "Quiz",       g.get("quiz_breakdown",[]),       "quiz_no")
-            _show_breakdown(sub_c2, "Assignment",  g.get("assignment_breakdown",[]), "assignment_no")
-            _show_breakdown(sub_c3, "Midterm Q",  g.get("midterm_breakdown",[]),    "question_no")
-            _show_breakdown(sub_c4, "Final Q",    g.get("final_breakdown",[]),      "question_no")
-
-    # Grade distribution
-    st.divider()
-    section_header("Grade Distribution")
-    grade_counts = {}
-    for g in aol_rows:
-        l = g.get("letter_grade") or "—"
-        grade_counts[l] = grade_counts.get(l, 0) + 1
-    st.bar_chart(pd.DataFrame(
-        [{"Grade": k, "Count": v} for k, v in sorted(grade_counts.items())]
-    ).set_index("Grade"))
-
-    # Actions
-    st.divider()
-    statuses = {g["status"] for g in aol_rows}
-    section_header("Workflow Actions")
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    # Submit (faculty_ultra or admin)
-    if "draft" in statuses:
-        if col1.button("📤 Submit for Approval",
-                        use_container_width=True, key="aol_submit"):
-            if UProService.submit_aol(course_uuid):
-                st.success("✅ Submitted.")
-                st.rerun()
-
-    # Approve & Release (admin only)
-    if is_admin:
-        if "submitted" in statuses:
-            if col2.button("✅ Approve", use_container_width=True, key="aol_approve"):
-                if UProService.approve_aol(course_uuid):
-                    st.success("✅ Approved.")
-                    st.rerun()
-            if col3.button("📢 Approve & Release",
-                            use_container_width=True, key="aol_apprel"):
-                UProService.approve_aol(course_uuid)
-                UProService.release_aol(course_uuid)
-                st.success("✅ Approved and released.")
-                st.rerun()
-        if "approved" in statuses:
-            if col4.button("📢 Release to Students",
-                            use_container_width=True, key="aol_release"):
-                if UProService.release_aol(course_uuid):
-                    st.success("✅ Released.")
-                    st.rerun()
-
-    # Push to main gradebook
-    st.divider()
-    section_header("Push to Main Gradebook",
-                    "Overwrites main compiled_grades with AOL totals")
-    if st.button("⬆️ Push AOL Grades → Main Gradebook",
-                  type="secondary", use_container_width=True, key="aol_push"):
-        ok, msg = UProService.push_to_main_gradebook(course_uuid)
-        if ok:
-            st.success(f"✅ {msg}")
-        else:
-            st.error(f"❌ {msg}")
-
-    # Excel export
-    st.divider()
-    excel_bytes = UProService.export_aol_to_excel(course_uuid, course_info)
-    if excel_bytes:
-        course_code = course_info.get("code","course").replace(" ","_")
-        st.download_button(
-            label="📥 Download AOL Gradebook (Excel)",
-            data=excel_bytes,
-            file_name=f"AOL_Gradebook_{course_code}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-
-
-def _show_breakdown(col, label, breakdown, key_field):
-    if not breakdown:
-        col.caption(f"{label}: —")
-        return
-    col.markdown(f"**{label}**")
-    for item in breakdown:
-        no  = item.get(key_field, "?")
-        obt = item.get("obtained","—")
-        mx  = item.get("max_marks","—")
-        col.caption(f"#{no}: {obt}/{mx}")
-
-
-# ── AOL CONFIG ────────────────────────────────────────────────────
-
-def _render_aol_config(course_uuid):
-    st.subheader("⚙️ AOL Generation Configuration")
-    st.caption("Defines how marks are distributed when generating the AOL Gradebook.")
-
-    cfg = UProService.get_aol_config(course_uuid)
-
-    with st.form("aol_cfg_form"):
-        section_header("Quizzes")
-        c1, c2 = st.columns(2)
-        num_q      = c1.number_input("Number of quizzes",      min_value=1, value=int(cfg["num_quizzes"]))
-        q_max      = c2.number_input("Max marks per quiz",      min_value=1.0, value=float(cfg["quiz_max_marks"]), step=0.5)
-
-        section_header("Assignments")
-        c3, c4 = st.columns(2)
-        num_a  = c3.number_input("Number of assignments",   min_value=1, value=int(cfg["num_assignments"]))
-        a_max  = c4.number_input("Max marks per assignment", min_value=1.0, value=float(cfg["assignment_max_marks"]), step=0.5)
-
-        section_header("Midterm Questions")
-        num_mq = st.number_input("Number of midterm questions", min_value=1, value=int(cfg["num_midterm_questions"]))
-        mid_marks_str = st.text_input(
-            "Max marks per question (comma-separated)",
-            value=", ".join(str(x) for x in cfg["midterm_q_marks"]),
-            help="e.g. 12.5, 12.5"
-        )
-
-        section_header("Final Questions")
-        num_fq = st.number_input("Number of final questions", min_value=1, value=int(cfg["num_final_questions"]))
-        fin_marks_str = st.text_input(
-            "Max marks per question (comma-separated)",
-            value=", ".join(str(x) for x in cfg["final_q_marks"]),
-            help="e.g. 15, 15, 10"
-        )
-
-        submitted = st.form_submit_button("💾 Save Config", use_container_width=True)
-
-    if submitted:
+    @staticmethod
+    def get_syndicates(course_uuid: str) -> list:
         try:
-            mid_marks = [float(x.strip()) for x in mid_marks_str.split(",") if x.strip()]
-            fin_marks = [float(x.strip()) for x in fin_marks_str.split(",") if x.strip()]
-        except ValueError:
-            st.error("Invalid marks format. Use comma-separated numbers.")
-            return
+            r = supabase.table("syndicates")\
+                .select("*, profiles!syndicates_lead_student_id_fkey(id, full_name, first_name, last_name, enrollment_number)")\
+                .eq("course_id", course_uuid)\
+                .order("name")\
+                .execute()
+            return r.data or []
+        except Exception as e:
+            logger.exception(f"Failed to fetch syndicates: {course_uuid}")
+            return []
 
-        ok = UProService.save_aol_config(course_uuid, {
-            "num_quizzes":           int(num_q),
-            "quiz_max_marks":        float(q_max),
-            "num_assignments":       int(num_a),
-            "assignment_max_marks":  float(a_max),
-            "num_midterm_questions": int(num_mq),
-            "midterm_q_marks":       mid_marks,
-            "num_final_questions":   int(num_fq),
-            "final_q_marks":         fin_marks,
+    @staticmethod
+    def get_syndicate_members(syndicate_id: str) -> list:
+        try:
+            r = supabase.table("syndicate_members")\
+                .select("*, profiles(id, full_name, first_name, last_name, enrollment_number, program)")\
+                .eq("syndicate_id", syndicate_id)\
+                .execute()
+            return r.data or []
+        except Exception as e:
+            logger.exception(f"Failed to fetch members: {syndicate_id}")
+            return []
+
+    @staticmethod
+    def get_student_syndicate(course_uuid: str, student_id: str) -> dict | None:
+        """Returns the syndicate a student belongs to in this course."""
+        try:
+            r = supabase.table("syndicate_members")\
+                .select("*, syndicates(*)")\
+                .eq("course_id", course_uuid)\
+                .eq("student_id", student_id)\
+                .execute()
+            return r.data[0] if r.data else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def create_syndicate(
+        course_uuid: str,
+        name: str,
+        lead_student_id: str | None,
+        created_by_role: str = "faculty_ultra",
+        status: str = "confirmed",
+    ) -> dict | None:
+        try:
+            r = supabase.table("syndicates").insert({
+                "course_id":       course_uuid,
+                "name":            name.strip(),
+                "lead_student_id": lead_student_id,
+                "created_by_role": created_by_role,
+                "status":          status,
+            }).execute()
+            UProService.clear_cache()
+            return r.data[0] if r.data else None
+        except Exception as e:
+            logger.exception(f"Failed to create syndicate: {name}")
+            return None
+
+    @staticmethod
+    def update_syndicate(syndicate_id: str, data: dict) -> bool:
+        try:
+            r = supabase.table("syndicates").update(data)\
+                .eq("id", syndicate_id).execute()
+            UProService.clear_cache()
+            return bool(r.data)
+        except Exception as e:
+            logger.exception(f"Failed to update syndicate: {syndicate_id}")
+            return False
+
+    @staticmethod
+    def delete_syndicate(syndicate_id: str) -> bool:
+        try:
+            supabase.table("syndicates").delete().eq("id", syndicate_id).execute()
+            UProService.clear_cache()
+            return True
+        except Exception as e:
+            logger.exception(f"Failed to delete syndicate: {syndicate_id}")
+            return False
+
+    @staticmethod
+    def confirm_syndicate(syndicate_id: str) -> bool:
+        from datetime import datetime, timezone
+        return UProService.update_syndicate(syndicate_id, {
+            "status": "confirmed",
+            "confirmed_at": datetime.now(timezone.utc).isoformat(),
         })
-        if ok:
-            st.success("✅ AOL config saved.")
-            st.rerun()
-        else:
-            st.error("❌ Save failed.")
+
+    @staticmethod
+    def reject_syndicate(syndicate_id: str) -> bool:
+        return UProService.update_syndicate(syndicate_id, {"status": "rejected"})
+
+    @staticmethod
+    def add_member(syndicate_id: str, course_uuid: str, student_id: str) -> bool:
+        try:
+            supabase.table("syndicate_members").upsert({
+                "syndicate_id": syndicate_id,
+                "student_id":   student_id,
+                "course_id":    course_uuid,
+            }).execute()
+            UProService.clear_cache()
+            return True
+        except Exception as e:
+            logger.exception(f"Failed to add member {student_id}")
+            return False
+
+    @staticmethod
+    def remove_member(syndicate_id: str, student_id: str) -> bool:
+        try:
+            supabase.table("syndicate_members").delete()\
+                .eq("syndicate_id", syndicate_id)\
+                .eq("student_id", student_id)\
+                .execute()
+            UProService.clear_cache()
+            return True
+        except Exception as e:
+            logger.exception(f"Failed to remove member: {student_id}")
+            return False
+
+    # ── UPro Scores ───────────────────────────────────────────────
+
+    @staticmethod
+    def get_upro_scores(course_uuid: str) -> list:
+        try:
+            r = supabase.table("upro_scores")\
+                .select("*, profiles(id, full_name, first_name, last_name, enrollment_number, program), syndicates(id, name)")\
+                .eq("course_id", course_uuid)\
+                .execute()
+            return r.data or []
+        except Exception as e:
+            logger.exception(f"Failed to fetch UPro scores: {course_uuid}")
+            return []
+
+    @staticmethod
+    def get_student_upro_score(course_uuid: str, student_id: str) -> dict | None:
+        try:
+            r = supabase.table("upro_scores").select("*")\
+                .eq("course_id", course_uuid)\
+                .eq("student_id", student_id)\
+                .execute()
+            return r.data[0] if r.data else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def save_upro_score(
+        course_uuid: str,
+        student_id: str,
+        syndicate_id: str | None = None,
+        quiz_score: float | None = None,
+        assignment_score: float | None = None,
+        midterm_score: float | None = None,
+        final_score: float | None = None,
+        quiz_note: str = "",
+        assignment_note: str = "",
+        midterm_note: str = "",
+        final_note: str = "",
+    ) -> bool:
+        from datetime import datetime, timezone
+        try:
+            r = supabase.table("upro_scores").upsert({
+                "course_id":        course_uuid,
+                "student_id":       student_id,
+                "syndicate_id":     syndicate_id,
+                "quiz_score":       quiz_score,
+                "assignment_score": assignment_score,
+                "midterm_score":    midterm_score,
+                "final_score":      final_score,
+                "quiz_note":        quiz_note,
+                "assignment_note":  assignment_note,
+                "midterm_note":     midterm_note,
+                "final_note":       final_note,
+                "updated_at":       datetime.now(timezone.utc).isoformat(),
+            }).execute()
+            return bool(r.data)
+        except Exception as e:
+            logger.exception(f"Failed to save UPro score: {student_id}")
+            return False
+
+    # ── AOL Config ────────────────────────────────────────────────
+
+    @staticmethod
+    def get_aol_config(course_uuid: str) -> dict:
+        try:
+            r = supabase.table("aol_config").select("*")\
+                .eq("course_id", course_uuid).execute()
+            if r.data:
+                cfg = r.data[0]
+                # Parse JSONB arrays
+                for key in ["midterm_q_marks", "final_q_marks"]:
+                    if isinstance(cfg[key], str):
+                        cfg[key] = json.loads(cfg[key])
+                return cfg
+            return {
+                "num_quizzes": 3, "quiz_max_marks": 10,
+                "num_assignments": 3, "assignment_max_marks": 10,
+                "num_midterm_questions": 2, "midterm_q_marks": [12.5, 12.5],
+                "num_final_questions": 3,  "final_q_marks": [15.0, 15.0, 10.0],
+            }
+        except Exception as e:
+            logger.exception(f"Failed to fetch AOL config: {course_uuid}")
+            return {
+                "num_quizzes": 3, "quiz_max_marks": 10,
+                "num_assignments": 3, "assignment_max_marks": 10,
+                "num_midterm_questions": 2, "midterm_q_marks": [12.5, 12.5],
+                "num_final_questions": 3,  "final_q_marks": [15.0, 15.0, 10.0],
+            }
+
+    @staticmethod
+    def save_aol_config(course_uuid: str, cfg: dict) -> bool:
+        try:
+            cfg["course_id"] = course_uuid
+            r = supabase.table("aol_config").upsert(cfg).execute()
+            UProService.clear_cache()
+            return bool(r.data)
+        except Exception as e:
+            logger.exception(f"Failed to save AOL config: {course_uuid}")
+            return False
+
+    # ── AOL Generation ────────────────────────────────────────────
+
+    @staticmethod
+    def generate_aol(
+        course_uuid: str,
+        components: list[str],   # e.g. ['quiz','assignment','midterm','final']
+    ) -> tuple[bool, str, int]:
+        """
+        Generate AOL Gradebook entries from UPro scores.
+        Returns (success, message, count_generated).
+        """
+        try:
+            scheme    = GradingService.get_effective_scheme(course_uuid)
+            cfg       = UProService.get_aol_config(course_uuid)
+            scores    = UProService.get_upro_scores(course_uuid)
+
+            if not scores:
+                return False, "No UPro scores found. Enter scores first.", 0
+
+            w_quiz = float(scheme["weight_quiz"])
+            w_asgn = float(scheme["weight_assignment"])
+            w_mid  = float(scheme["weight_midterm"])
+            w_fin  = float(scheme["weight_final"])
+
+            rows = []
+            for s in scores:
+                sid          = s["student_id"]
+                syndicate_id = s.get("syndicate_id")
+
+                quiz_breakdown       = []
+                assignment_breakdown = []
+                midterm_breakdown    = []
+                final_breakdown      = []
+                quiz_total = asgn_total = mid_total = fin_total = None
+
+                # ── Quiz ──────────────────────────────────────
+                if "quiz" in components and s.get("quiz_score") is not None:
+                    raw    = float(s["quiz_score"])
+                    n      = cfg["num_quizzes"]
+                    q_max  = float(cfg["quiz_max_marks"])
+                    total_max = n * q_max
+                    scaled = (raw / w_quiz) * total_max
+                    dist   = _distribute_marks(scaled, n, [q_max] * n)
+                    quiz_breakdown = [
+                        {"quiz_no": i+1, "max_marks": q_max, "obtained": dist[i]}
+                        for i in range(n)
+                    ]
+                    quiz_total = sum(d["obtained"] for d in quiz_breakdown)
+
+                # ── Assignment ────────────────────────────────
+                if "assignment" in components and s.get("assignment_score") is not None:
+                    raw    = float(s["assignment_score"])
+                    n      = cfg["num_assignments"]
+                    a_max  = float(cfg["assignment_max_marks"])
+                    total_max = n * a_max
+                    scaled = (raw / w_asgn) * total_max
+                    dist   = _distribute_marks(scaled, n, [a_max] * n)
+                    assignment_breakdown = [
+                        {"assignment_no": i+1, "max_marks": a_max, "obtained": dist[i]}
+                        for i in range(n)
+                    ]
+                    asgn_total = sum(d["obtained"] for d in assignment_breakdown)
+
+                # ── Midterm ───────────────────────────────────
+                if "midterm" in components and s.get("midterm_score") is not None:
+                    raw    = float(s["midterm_score"])
+                    n      = cfg["num_midterm_questions"]
+                    q_maxs = cfg["midterm_q_marks"][:n]
+                    # pad if needed
+                    while len(q_maxs) < n:
+                        q_maxs.append(float(cfg.get("midterm_q_marks", [12.5])[0]))
+                    dist   = _distribute_marks(raw, n, q_maxs)
+                    midterm_breakdown = [
+                        {"question_no": i+1, "max_marks": float(q_maxs[i]), "obtained": dist[i]}
+                        for i in range(n)
+                    ]
+                    mid_total = sum(d["obtained"] for d in midterm_breakdown)
+
+                # ── Final ─────────────────────────────────────
+                if "final" in components and s.get("final_score") is not None:
+                    raw    = float(s["final_score"])
+                    n      = cfg["num_final_questions"]
+                    q_maxs = cfg["final_q_marks"][:n]
+                    while len(q_maxs) < n:
+                        q_maxs.append(float(cfg.get("final_q_marks", [15.0])[0]))
+                    dist   = _distribute_marks(raw, n, q_maxs)
+                    final_breakdown = [
+                        {"question_no": i+1, "max_marks": float(q_maxs[i]), "obtained": dist[i]}
+                        for i in range(n)
+                    ]
+                    fin_total = sum(d["obtained"] for d in final_breakdown)
+
+                # ── Grand total & grade ───────────────────────
+                parts = [x for x in [
+                    s.get("quiz_score")       if "quiz"       in components else None,
+                    s.get("assignment_score") if "assignment" in components else None,
+                    s.get("midterm_score")    if "midterm"    in components else None,
+                    s.get("final_score")      if "final"      in components else None,
+                ] if x is not None]
+                grand = round(sum(float(x) for x in parts), 2) if parts else None
+                letter, gpa = score_to_letter(grand, scheme) if grand is not None \
+                              else (None, None)
+
+                rows.append({
+                    "course_id":             course_uuid,
+                    "student_id":            sid,
+                    "syndicate_id":          syndicate_id,
+                    "quiz_breakdown":        json.dumps(quiz_breakdown),
+                    "assignment_breakdown":  json.dumps(assignment_breakdown),
+                    "midterm_breakdown":     json.dumps(midterm_breakdown),
+                    "final_breakdown":       json.dumps(final_breakdown),
+                    "quiz_total":            quiz_total,
+                    "assignment_total":      asgn_total,
+                    "midterm_total":         mid_total,
+                    "final_total":           fin_total,
+                    "grand_total":           grand,
+                    "letter_grade":          letter,
+                    "gpa_points":            gpa,
+                    "status":                "draft",
+                })
+
+            if rows:
+                supabase.table("aol_gradebook").upsert(rows).execute()
+                UProService.clear_cache()
+
+            return True, f"AOL Gradebook generated for {len(rows)} student(s).", len(rows)
+
+        except Exception as e:
+            logger.exception(f"AOL generation failed: {course_uuid}")
+            return False, str(e), 0
+
+    # ── AOL Workflow ──────────────────────────────────────────────
+
+    @staticmethod
+    def get_aol_gradebook(course_uuid: str) -> list:
+        try:
+            r = supabase.table("aol_gradebook")\
+                .select("*, profiles(id, full_name, first_name, last_name, enrollment_number, program), syndicates(name)")\
+                .eq("course_id", course_uuid)\
+                .order("grand_total", desc=True)\
+                .execute()
+            rows = r.data or []
+            # Parse JSON fields
+            for row in rows:
+                for field in ["quiz_breakdown","assignment_breakdown",
+                               "midterm_breakdown","final_breakdown"]:
+                    if isinstance(row.get(field), str):
+                        try:
+                            row[field] = json.loads(row[field])
+                        except Exception:
+                            row[field] = []
+            return rows
+        except Exception as e:
+            logger.exception(f"Failed to fetch AOL gradebook: {course_uuid}")
+            return []
+
+    @staticmethod
+    def get_student_aol_grades(student_id: str) -> list:
+        """Released AOL grades for a student."""
+        try:
+            r = supabase.table("aol_gradebook")\
+                .select("*, courses(name, code, course_id, credits)")\
+                .eq("student_id", student_id)\
+                .eq("status", "released")\
+                .execute()
+            return r.data or []
+        except Exception:
+            return []
+
+    @staticmethod
+    def submit_aol(course_uuid: str) -> bool:
+        from datetime import datetime, timezone
+        try:
+            supabase.table("aol_gradebook").update({
+                "status": "submitted",
+                "submitted_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("course_id", course_uuid).eq("status", "draft").execute()
+            UProService.clear_cache()
+            return True
+        except Exception as e:
+            logger.exception(f"AOL submit failed: {course_uuid}")
+            return False
+
+    @staticmethod
+    def approve_aol(course_uuid: str) -> bool:
+        from datetime import datetime, timezone
+        try:
+            supabase.table("aol_gradebook").update({
+                "status": "approved",
+                "approved_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("course_id", course_uuid).eq("status", "submitted").execute()
+            UProService.clear_cache()
+            return True
+        except Exception as e:
+            logger.exception(f"AOL approve failed: {course_uuid}")
+            return False
+
+    @staticmethod
+    def release_aol(course_uuid: str) -> bool:
+        from datetime import datetime, timezone
+        try:
+            supabase.table("aol_gradebook").update({
+                "status": "released",
+                "released_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("course_id", course_uuid).eq("status", "approved").execute()
+            UProService.clear_cache()
+            return True
+        except Exception as e:
+            logger.exception(f"AOL release failed: {course_uuid}")
+            return False
+
+    @staticmethod
+    def push_to_main_gradebook(course_uuid: str) -> tuple[bool, str]:
+        """
+        Copies AOL compiled grades into the regular compiled_grades table.
+        Only copies rows with status='approved' or 'released'.
+        """
+        from datetime import datetime, timezone
+        try:
+            aol_rows = supabase.table("aol_gradebook").select("*")\
+                .eq("course_id", course_uuid)\
+                .in_("status", ["approved","released"])\
+                .execute()
+
+            if not aol_rows.data:
+                return False, "No approved/released AOL grades to push."
+
+            main_rows = []
+            for row in aol_rows.data:
+                main_rows.append({
+                    "course_id":        course_uuid,
+                    "student_id":       row["student_id"],
+                    "quiz_score":       row.get("quiz_total"),
+                    "assignment_score": row.get("assignment_total"),
+                    "midterm_score":    row.get("midterm_total"),
+                    "final_score":      row.get("final_total"),
+                    "total_score":      row.get("grand_total"),
+                    "letter_grade":     row.get("letter_grade"),
+                    "gpa_points":       row.get("gpa_points"),
+                    "status":           row.get("status","approved"),
+                })
+
+            supabase.table("compiled_grades").upsert(main_rows).execute()
+
+            # Mark as pushed
+            supabase.table("aol_gradebook").update({
+                "pushed_to_main": True,
+                "pushed_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("course_id", course_uuid).execute()
+
+            UProService.clear_cache()
+            return True, f"Pushed {len(main_rows)} grade(s) to main gradebook."
+
+        except Exception as e:
+            logger.exception(f"Push to main failed: {course_uuid}")
+            return False, str(e)
+
+    # ── Excel Export ──────────────────────────────────────────────
+
+    @staticmethod
+    def export_aol_to_excel(course_uuid: str, course_info: dict) -> bytes | None:
+        """Generates an Excel file of the AOL gradebook."""
+        try:
+            import io
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+
+            rows = UProService.get_aol_gradebook(course_uuid)
+            if not rows:
+                return None
+
+            cfg = UProService.get_aol_config(course_uuid)
+            wb  = openpyxl.Workbook()
+
+            # ── Summary sheet ──────────────────────────────────
+            ws = wb.active
+            ws.title = "AOL Summary"
+
+            header_fill = PatternFill("solid", fgColor="1F4E79")
+            sub_fill    = PatternFill("solid", fgColor="2E75B6")
+            alt_fill    = PatternFill("solid", fgColor="D6E4F0")
+            header_font = Font(bold=True, color="FFFFFF", size=11)
+            bold_font   = Font(bold=True)
+            thin_border = Border(
+                left=Side(style='thin'), right=Side(style='thin'),
+                top=Side(style='thin'),  bottom=Side(style='thin')
+            )
+
+            # Course info header
+            ws.merge_cells("A1:J1")
+            ws["A1"] = f"AOL Gradebook — {course_info.get('code','')} {course_info.get('name','')}"
+            ws["A1"].font = Font(bold=True, size=14, color="1F4E79")
+            ws["A1"].alignment = Alignment(horizontal="center")
+
+            ws.merge_cells("A2:J2")
+            ws["A2"] = f"Course ID: {course_info.get('course_id','—')} | Semester: {course_info.get('semester','—')}"
+            ws["A2"].alignment = Alignment(horizontal="center")
+            ws["A2"].font = Font(italic=True, size=10)
+
+            # Column headers (row 4)
+            n_quiz  = cfg["num_quizzes"]
+            n_asgn  = cfg["num_assignments"]
+            n_mid   = cfg["num_midterm_questions"]
+            n_fin   = cfg["num_final_questions"]
+
+            headers = [
+                "Enrollment No", "Student Name", "Syndicate",
+                "Program",
+            ]
+            for i in range(n_quiz):
+                headers.append(f"Quiz {i+1} (/{cfg['quiz_max_marks']})")
+            headers.append("Quiz Total")
+            for i in range(n_asgn):
+                headers.append(f"Asgn {i+1} (/{cfg['assignment_max_marks']})")
+            headers.append("Assignment Total")
+            for i in range(n_mid):
+                headers.append(f"Mid Q{i+1} (/{cfg['midterm_q_marks'][i] if i < len(cfg['midterm_q_marks']) else '?'})")
+            headers.append("Midterm Total")
+            for i in range(n_fin):
+                headers.append(f"Final Q{i+1} (/{cfg['final_q_marks'][i] if i < len(cfg['final_q_marks']) else '?'})")
+            headers.append("Final Total")
+            headers += ["Grand Total", "Letter Grade", "GPA"]
+
+            header_row = 4
+            for col_idx, h in enumerate(headers, 1):
+                cell = ws.cell(row=header_row, column=col_idx, value=h)
+                cell.font      = header_font
+                cell.fill      = header_fill
+                cell.alignment = Alignment(horizontal="center", wrap_text=True)
+                cell.border    = thin_border
+
+            # Data rows
+            grade_colours_hex = {
+                "A": "00B050", "A-": "00B050",
+                "B+": "0070C0", "B": "0070C0", "B-": "0070C0",
+                "C+": "FFC000", "C": "FFC000", "C-": "FFC000",
+                "D+": "FF6600", "D": "FF6600",
+                "F": "FF0000",
+            }
+
+            for row_idx, g in enumerate(rows, header_row + 1):
+                p      = g.get("profiles", {}) or {}
+                syn    = (g.get("syndicates") or {}).get("name", "—")
+                letter = g.get("letter_grade") or "—"
+                fill   = alt_fill if row_idx % 2 == 0 else PatternFill()
+
+                row_data = [
+                    p.get("enrollment_number", "—"),
+                    (p.get("full_name") or f"{p.get('first_name','')} {p.get('last_name','')}").strip() or "—",
+                    syn,
+                    p.get("program", "—"),
+                ]
+
+                # Quiz breakdown
+                qb = g.get("quiz_breakdown") or []
+                for i in range(n_quiz):
+                    row_data.append(qb[i]["obtained"] if i < len(qb) else "—")
+                row_data.append(g.get("quiz_total", "—"))
+
+                # Assignment breakdown
+                ab = g.get("assignment_breakdown") or []
+                for i in range(n_asgn):
+                    row_data.append(ab[i]["obtained"] if i < len(ab) else "—")
+                row_data.append(g.get("assignment_total", "—"))
+
+                # Midterm breakdown
+                mb = g.get("midterm_breakdown") or []
+                for i in range(n_mid):
+                    row_data.append(mb[i]["obtained"] if i < len(mb) else "—")
+                row_data.append(g.get("midterm_total", "—"))
+
+                # Final breakdown
+                fb = g.get("final_breakdown") or []
+                for i in range(n_fin):
+                    row_data.append(fb[i]["obtained"] if i < len(fb) else "—")
+                row_data.append(g.get("final_total", "—"))
+
+                row_data += [
+                    round(g["grand_total"], 2) if g.get("grand_total") else "—",
+                    letter,
+                    g.get("gpa_points", "—"),
+                ]
+
+                for col_idx, val in enumerate(row_data, 1):
+                    cell = ws.cell(row=row_idx, column=col_idx, value=val)
+                    cell.border    = thin_border
+                    cell.alignment = Alignment(horizontal="center")
+                    if fill.fgColor and fill.fgColor.rgb != "00000000":
+                        cell.fill = fill
+                    # Colour letter grade
+                    if col_idx == len(row_data) - 1 and letter in grade_colours_hex:
+                        cell.font = Font(bold=True,
+                                          color=grade_colours_hex.get(letter, "000000"))
+
+            # Auto-fit columns
+            for col in ws.columns:
+                max_len = max((len(str(cell.value or "")) for cell in col), default=8)
+                ws.column_dimensions[get_column_letter(col[0].column)].width = min(max_len + 4, 30)
+
+            # ── Grade Distribution sheet ──────────────────────
+            ws2 = wb.create_sheet("Grade Distribution")
+            ws2["A1"] = "Letter Grade"
+            ws2["B1"] = "Count"
+            ws2["A1"].font = bold_font
+            ws2["B1"].font = bold_font
+
+            from collections import Counter
+            grade_dist = Counter(g.get("letter_grade","—") for g in rows)
+            for i, (grade, count) in enumerate(sorted(grade_dist.items()), 2):
+                ws2.cell(row=i, column=1, value=grade)
+                ws2.cell(row=i, column=2, value=count)
+
+            out = io.BytesIO()
+            wb.save(out)
+            return out.getvalue()
+
+        except Exception as e:
+            logger.exception(f"Excel export failed: {course_uuid}")
+            return None
