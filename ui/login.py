@@ -1,142 +1,194 @@
+"""
+Sylemax Login — Phase 5 branded login page.
+"""
 import streamlit as st
+import base64
+from pathlib import Path
 from services.auth_service import AuthService
-from services.supabase_client import supabase
-import logging
-
-logger = logging.getLogger("sylemax.login")
+from ui.styles import inject_global_css, BRAND
 
 
-def _change_password_screen() -> None:
-    """Forced password change screen for first-time / reset logins."""
-    st.markdown('<p class="main-title">🎓 SylemaX</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-title">Academic Management System</p>', unsafe_allow_html=True)
-    st.warning("🔒 You are using a temporary password. Please set a new password to continue.")
-
-    with st.form("force_change_form"):
-        new_pass = st.text_input("New Password",      type="password")
-        confirm  = st.text_input("Confirm Password",  type="password")
-        submitted = st.form_submit_button("Set New Password", use_container_width=True)
-
-    if submitted:
-        if not new_pass or not confirm:
-            st.error("Both fields are required.")
-            return
-        if new_pass == "ChangeYourPassword":
-            st.error("You cannot reuse the temporary password.")
-            return
-        if len(new_pass) < 8:
-            st.error("Password must be at least 8 characters.")
-            return
-        if new_pass != confirm:
-            st.error("Passwords do not match.")
-            return
-        try:
-            supabase.auth.update_user({"password": new_pass})
-            user = st.session_state.get("user")
-            if user:
-                supabase.table("profiles")\
-                    .update({"force_password_change": False})\
-                    .eq("id", user.id)\
-                    .execute()
-                if st.session_state.get("profile"):
-                    st.session_state.profile["force_password_change"] = False
-            st.success("✅ Password updated successfully!")
-            st.rerun()
-        except Exception as e:
-            logger.exception("Forced password change failed.")
-            st.error(f"Failed to update password: {str(e)}")
+def _logo_b64() -> str:
+    logo_path = Path(__file__).parent.parent / "assets" / "sylemax_logo.png"
+    if logo_path.exists():
+        return base64.b64encode(logo_path.read_bytes()).decode()
+    return ""
 
 
-def login_page() -> None:
-    # Check if logged-in user must change password
-    if st.session_state.get("user") and st.session_state.get("profile"):
-        if st.session_state.profile.get("force_password_change"):
-            _change_password_screen()
-            return
+def render_login() -> None:
+    inject_global_css()
+    logo_b64 = _logo_b64()
 
-    st.markdown('<p class="main-title">🎓 SylemaX</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-title">Academic Management System</p>', unsafe_allow_html=True)
+    # Full-page branded background
+    st.markdown(f"""
+    <style>
+    .stApp {{
+        background: linear-gradient(145deg, {BRAND['deep']} 0%, {BRAND['core']} 45%, {BRAND['mid']} 100%) !important;
+        min-height: 100vh;
+    }}
+    .main .block-container {{
+        padding: 2rem 1rem !important;
+        max-width: 460px !important;
+        margin: 0 auto !important;
+    }}
+    .login-card {{
+        background: rgba(255,255,255,0.97);
+        border-radius: 20px;
+        padding: 2.5rem 2.2rem 2rem;
+        box-shadow: 0 24px 80px rgba(24,96,120,0.35), 0 4px 20px rgba(0,0,0,0.12);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255,255,255,0.8);
+    }}
+    .login-logo {{
+        text-align: center;
+        margin-bottom: 1.6rem;
+    }}
+    .login-logo img {{
+        width: 180px;
+        margin-bottom: 0.5rem;
+    }}
+    .login-tagline {{
+        font-size: 0.75rem;
+        color: {BRAND['text_light']};
+        text-align: center;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        margin-bottom: 0.3rem;
+    }}
+    .login-divider {{
+        display: flex; align-items: center; gap: 12px;
+        margin: 1rem 0;
+    }}
+    .login-divider-line {{
+        flex: 1; height: 1px;
+        background: {BRAND['border']};
+    }}
+    .login-divider-text {{
+        font-size: 0.72rem; color: {BRAND['text_light']};
+        text-transform: uppercase; letter-spacing: 0.06em;
+    }}
+    /* Override form inside card */
+    [data-testid="stForm"] {{
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+    }}
+    .stTabs [data-baseweb="tab-list"] {{
+        background: {BRAND['pale']} !important;
+        border-radius: 10px !important;
+        padding: 3px !important;
+        margin-bottom: 1.2rem;
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        font-size: 0.86rem !important;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
 
-    tab_login, tab_register = st.tabs(["Login", "Faculty Registration"])
+    # Center vertically with spacer
+    st.markdown("<div style='height:3vh'></div>", unsafe_allow_html=True)
 
-    # ── LOGIN ──────────────────────────────────────────────────────
+    # Login card
+    st.markdown('<div class="login-card">', unsafe_allow_html=True)
+
+    # Logo
+    if logo_b64:
+        st.markdown(f"""
+        <div class="login-logo">
+            <img src="data:image/png;base64,{logo_b64}" alt="Sylemax"/>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div style="text-align:center;margin-bottom:1.5rem;">
+            <div style="font-family:'DM Serif Display',serif;font-size:2.2rem;
+                        color:{BRAND['deep']};letter-spacing:-0.03em;">Sylemax</div>
+            <div style="font-size:0.72rem;color:{BRAND['text_light']};
+                        letter-spacing:0.12em;text-transform:uppercase;">
+                Academic Management · Effortless & Tailored
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    tab_login, tab_register = st.tabs(["🔑 Sign In", "📝 Register as Faculty"])
+
+    # ── Sign In ───────────────────────────────────────────────────
     with tab_login:
-        st.subheader("Sign In")
-        st.caption("Students: use your enrollment email (e.g. 01-11111-011@um.ar)")
+        with st.form("login_form"):
+            st.markdown(f"<p style='font-size:0.78rem;color:{BRAND['text_light']};margin-bottom:1rem;text-align:center;'>Welcome back — sign in to continue</p>", unsafe_allow_html=True)
+            email    = st.text_input("Email Address", placeholder="your@email.com")
+            password = st.text_input("Password", type="password",
+                                      placeholder="Enter your password")
+            st.markdown("<br>", unsafe_allow_html=True)
+            submitted = st.form_submit_button(
+                "Sign In →", use_container_width=True, type="primary"
+            )
 
-        email    = st.text_input("Email", key="login_email", placeholder="you@example.com")
-        password = st.text_input("Password", type="password", key="login_password")
-
-        if st.button("Login", key="login_button", use_container_width=True):
+        if submitted:
             if not email or not password:
-                st.warning("Please enter both email and password.")
-                return
-
-            with st.spinner("Authenticating..."):
-                response = AuthService.login(email.strip(), password)
-
-            if not response or not response.get("user"):
-                st.error("Invalid credentials. Please check your email and password.")
-                return
-
-            user    = response["user"]
-            profile = response["profile"]
-
-            st.session_state.user    = user
-            st.session_state.role    = profile.get("role", "student")
-            st.session_state.profile = profile
-
-            if profile.get("force_password_change"):
-                st.rerun()
-                return
-
-            st.rerun()
-
-    # ── FACULTY REGISTRATION ───────────────────────────────────────
-    with tab_register:
-        st.subheader("Faculty Registration")
-        st.info("Faculty accounts require admin approval. "
-                "Students cannot self-register — accounts are created by admin.")
-
-        c1, c2      = st.columns(2)
-        reg_first   = c1.text_input("First Name",   key="reg_first",
-                                     placeholder="e.g. John")
-        reg_last    = c2.text_input("Last Name",    key="reg_last",
-                                     placeholder="e.g. Smith")
-        reg_emp_id  = st.text_input("Employee ID",  key="reg_emp_id",
-                                     placeholder="e.g. EMP-001")
-        reg_email   = st.text_input("Email",        key="reg_email",
-                                     placeholder="faculty@university.edu")
-        reg_pass    = st.text_input("Password",     type="password", key="reg_password")
-        reg_confirm = st.text_input("Confirm Password", type="password", key="reg_confirm")
-
-        if st.button("Register as Faculty", key="register_button", use_container_width=True):
-            if not reg_first or not reg_last:
-                st.warning("First and last name are required.")
-                return
-            if not reg_emp_id:
-                st.warning("Employee ID is required.")
-                return
-            if not reg_email or not reg_pass or not reg_confirm:
-                st.warning("Email and password fields are required.")
-                return
-            if reg_pass != reg_confirm:
-                st.error("Passwords do not match.")
-                return
-            if len(reg_pass) < 8:
-                st.error("Password must be at least 8 characters.")
-                return
-
-            with st.spinner("Submitting registration..."):
-                success = AuthService.register_faculty(
-                    email=reg_email.strip(),
-                    password=reg_pass,
-                    first_name=reg_first.strip(),
-                    last_name=reg_last.strip(),
-                    employee_id=reg_emp_id.strip(),
-                )
-
-            if success:
-                st.success("Registration submitted! An admin will review your account.")
+                st.error("Please enter both email and password.")
             else:
-                st.error("Registration failed. This email may already be registered.")
+                with st.spinner("Signing in..."):
+                    result = AuthService.login(email.strip(), password)
+                if result.get("success"):
+                    st.session_state.user    = result["user"]
+                    st.session_state.session = result["session"]
+                    st.session_state.role    = result["role"]
+                    st.session_state.profile = result.get("profile")
+                    st.rerun()
+                else:
+                    st.error(result.get("error", "Login failed. Please check your credentials."))
+
+    # ── Register ──────────────────────────────────────────────────
+    with tab_register:
+        st.markdown(f"<p style='font-size:0.78rem;color:{BRAND['text_light']};margin-bottom:1rem;text-align:center;'>Faculty registration requires admin approval</p>", unsafe_allow_html=True)
+        with st.form("register_form"):
+            c1, c2 = st.columns(2)
+            first_name   = c1.text_input("First Name *",  placeholder="John")
+            last_name    = c2.text_input("Last Name *",   placeholder="Smith")
+            employee_id  = st.text_input("Employee ID *", placeholder="EMP-12345")
+            reg_email    = st.text_input("Email Address *", placeholder="faculty@institution.edu")
+            c3, c4       = st.columns(2)
+            reg_password = c3.text_input("Password *",   type="password", placeholder="Min 8 chars")
+            confirm_pw   = c4.text_input("Confirm Password *", type="password")
+            st.markdown("<br>", unsafe_allow_html=True)
+            reg_submitted = st.form_submit_button(
+                "Submit Registration", use_container_width=True, type="primary"
+            )
+
+        if reg_submitted:
+            if not all([first_name, last_name, employee_id, reg_email, reg_password]):
+                st.error("All fields marked * are required.")
+            elif reg_password != confirm_pw:
+                st.error("Passwords do not match.")
+            elif len(reg_password) < 8:
+                st.error("Password must be at least 8 characters.")
+            else:
+                with st.spinner("Submitting registration..."):
+                    result = AuthService.register_faculty(
+                        email=reg_email.strip(),
+                        password=reg_password,
+                        first_name=first_name.strip(),
+                        last_name=last_name.strip(),
+                        employee_id=employee_id.strip(),
+                    )
+                if result.get("success"):
+                    st.success(
+                        "✅ Registration submitted! An administrator will review and approve your account."
+                    )
+                else:
+                    st.error(result.get("error","Registration failed. This email may already be registered."))
+
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <p style="text-align:center;margin-top:1.2rem;
+              font-size:0.68rem;color:rgba(255,255,255,0.45);
+              letter-spacing:0.06em;">
+        © Sylemax · Academic Management · Effortless &amp; Tailored
+    </p>
+    """, unsafe_allow_html=True)
+
+
+# Alias for backward compatibility
+login_page = render_login
