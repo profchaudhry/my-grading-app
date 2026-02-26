@@ -14,6 +14,7 @@ from services.supabase_client import supabase
 from ui.styles import section_header
 from ui.components import render_change_password
 from ui.admin_gradebook import render_admin_gradebook
+from ui.upro_grade import render_upro_grade
 from ui.bulk_enrollment import render_bulk_enrollment
 import logging
 
@@ -200,7 +201,19 @@ def _render_user_card(user: dict, role_type: str) -> None:
                     st.markdown(f"**Address:** {user['address']}")
 
             st.divider()
-            col_edit, col_reset, col_del = st.columns(3)
+            is_ultra  = user.get("role") == "faculty_ultra"
+            col_edit, col_reset, col_ultra, col_del = st.columns(4)
+
+            if col_ultra.button(
+                "⬇️ Downgrade" if is_ultra else "⬆️ Ultra",
+                key=f"ultra_btn_{uid}", use_container_width=True,
+                help="Toggle Faculty Ultra status",
+            ):
+                new_role = "faculty" if is_ultra else "faculty_ultra"
+                from services.admin_service import AdminService
+                if AdminService.update_profile(uid, {"role": new_role}):
+                    st.success(f"Role updated to {new_role}.")
+                    st.rerun()
 
             if col_edit.button("✏️ Edit", key=f"edit_btn_{uid}", use_container_width=True):
                 st.session_state[edit_key] = True
@@ -342,6 +355,42 @@ def _render_enrollment_management() -> None:
                     st.error("Enrollment failed.")
 
 
+def _render_admin_upro() -> None:
+    """Admin UPro Grade — access any course."""
+    st.title("🏆 UPro Grade — Admin")
+    sems = SemesterService.get_all()
+    if not sems:
+        st.warning("No semesters found.")
+        return
+    sem_map    = {s["name"]: s["id"] for s in sems}
+    active_sem = SemesterService.get_active()
+    sem_names  = list(sem_map.keys())
+    default    = active_sem["name"] if active_sem and active_sem["name"] in sem_names else sem_names[0]
+    sel_sem    = st.selectbox("Semester", sem_names,
+                               index=sem_names.index(default), key="adm_upro_sem")
+    sel_sem_id = sem_map[sel_sem]
+    from services.course_service import CourseService
+    courses = CourseService.get_all(sel_sem_id)
+    if not courses:
+        st.info("No courses for this semester.")
+        return
+    course_opts = {
+        f"{c['code']} — {c['name']} [{c.get('course_id','—')}]": c
+        for c in courses
+    }
+    sel_label   = st.selectbox("Course", list(course_opts.keys()), key="adm_upro_course")
+    course      = course_opts[sel_label]
+    course_uuid = course["id"]
+    course_info = {
+        "code":      course.get("code",""),
+        "name":      course.get("name",""),
+        "course_id": course.get("course_id",""),
+        "semester":  sel_sem,
+    }
+    st.divider()
+    render_upro_grade(course_uuid, course_info, is_admin=True)
+
+
 # ================================================================
 # MAIN ADMIN CONSOLE
 # ================================================================
@@ -359,6 +408,7 @@ def admin_console() -> None:
             "📋 Enrollment",
             "📋 Bulk Enrollment",
             "📒 Gradebook",
+            "🏆 UPro Grade",
             "👨‍🏫 Faculty",
             "🎓 Students",
             "✅ Pending Approvals",
@@ -373,7 +423,9 @@ def admin_console() -> None:
     elif menu == "📋 Enrollment":       _render_enrollment_management()
     elif menu == "📋 Bulk Enrollment":      _render_bulk_upload()
     elif menu == "📒 Gradebook":          render_admin_gradebook()
-    elif menu == "👨‍🏫 Faculty":          _render_users("faculty")
+    elif menu == "🏆 UPro Grade":
+        _render_admin_upro()
+        elif menu == "👨‍🏫 Faculty":          _render_users("faculty")
     elif menu == "🎓 Students":         _render_users("student")
     elif menu == "✅ Pending Approvals": _render_pending_approvals()
     elif menu == "🔒 Change Password":
