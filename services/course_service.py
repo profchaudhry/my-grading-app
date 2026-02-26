@@ -7,13 +7,16 @@ from config import CACHE_TTL
 logger = logging.getLogger("sylemax.course_service")
 
 
+# ── The departments table no longer has a "code" column (dropped in migration).
+# ── All selects below use departments(name) only.
+
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def _cached_get_all_courses(semester_id: str | None = None) -> list:
     try:
         query = (
             supabase
             .table("courses")
-            .select("*, departments(name, code), semesters(name)")
+            .select("*, departments(name), semesters(name)")
             .order("code")
         )
         if semester_id:
@@ -31,7 +34,7 @@ def _cached_get_course(course_id: str) -> dict | None:
         response = (
             supabase
             .table("courses")
-            .select("*, departments(name, code), semesters(name)")
+            .select("*, departments(name), semesters(name)")
             .eq("id", course_id)
             .execute()
         )
@@ -47,7 +50,7 @@ def _cached_get_faculty_courses(faculty_id: str, semester_id: str | None = None)
         query = (
             supabase
             .table("course_assignments")
-            .select("*, courses(*, departments(name, code), semesters(name))")
+            .select("*, courses(*, departments(name), semesters(name))")
             .eq("faculty_id", faculty_id)
         )
         response = query.execute()
@@ -55,7 +58,7 @@ def _cached_get_faculty_courses(faculty_id: str, semester_id: str | None = None)
         if semester_id:
             data = [
                 d for d in data
-                if d.get("courses", {}).get("semester_id") == semester_id
+                if (d.get("courses") or {}).get("semester_id") == semester_id
             ]
         return data
     except Exception as e:
@@ -92,13 +95,13 @@ class CourseService(BaseService):
                 supabase
                 .table("courses")
                 .insert({
-                    "name": name.strip(),
-                    "code": code.strip().upper(),
+                    "name":          name.strip(),
+                    "code":          code.strip().upper(),
                     "department_id": department_id,
-                    "semester_id": semester_id,
-                    "credits": credits,
-                    "max_students": max_students,
-                    "description": description.strip(),
+                    "semester_id":   semester_id,
+                    "credits":       credits,
+                    "max_students":  max_students,
+                    "description":   description.strip(),
                 })
                 .execute()
             )
@@ -198,5 +201,5 @@ class CourseService(BaseService):
             )
             return response.count or 0
         except Exception as e:
-            logger.exception(f"Failed to get enrollment count for course: {course_id}")
+            logger.exception(f"Failed to get enrollment count: {course_id}")
             return 0
