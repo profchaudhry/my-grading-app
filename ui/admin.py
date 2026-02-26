@@ -13,6 +13,7 @@ from services.profile_service import ProfileService
 from services.supabase_client import supabase
 from ui.styles import section_header
 from ui.components import render_change_password
+from ui.bulk_enrollment import render_bulk_enrollment
 import logging
 
 logger = logging.getLogger("sylemax.admin_ui")
@@ -23,6 +24,10 @@ logger = logging.getLogger("sylemax.admin_ui")
 # ================================================================
 
 def _full_name(profile: dict) -> str:
+    """Prefers full_name field (used for students); falls back to first+last (faculty/admin)."""
+    full = (profile.get("full_name") or "").strip()
+    if full:
+        return full
     first = (profile.get("first_name") or "").strip()
     last  = (profile.get("last_name")  or "").strip()
     return f"{first} {last}".strip() or profile.get("email", "—")
@@ -74,14 +79,15 @@ def _faculty_edit_form(user: dict, form_key: str) -> dict | None:
 
 def _student_edit_form(user: dict, form_key: str) -> dict | None:
     """Admin can edit ALL student fields."""
+    # Derive full_name display value
+    existing_full = (user.get("full_name","") or "").strip() or                     f"{user.get('first_name','') or ''} {user.get('last_name','') or ''}".strip()
     with st.form(form_key):
         section_header("Identity (Admin Only)")
         c1, c2 = st.columns(2)
-        first         = c1.text_input("First Name", value=user.get("first_name","") or "")
-        last          = c2.text_input("Last Name",  value=user.get("last_name", "") or "")
-        enrollment_no = c1.text_input("Enrollment Number",
+        full_name_val = c1.text_input("Full Name", value=existing_full)
+        enrollment_no = c2.text_input("Enrollment Number",
                                        value=user.get("enrollment_number","") or "")
-        program       = c2.text_input("Program / Degree", value=user.get("program","") or "")
+        program       = c1.text_input("Program / Degree", value=user.get("program","") or "")
         c3, c4 = st.columns(2)
         year_of_study = c3.number_input("Year of Study", min_value=1, max_value=10,
                                          value=int(user.get("year_of_study") or 1))
@@ -106,8 +112,12 @@ def _student_edit_form(user: dict, form_key: str) -> dict | None:
         submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
 
     if submitted:
+        fn = full_name_val.strip()
+        parts = fn.split(" ", 1)
         return {
-            "first_name": first.strip(), "last_name": last.strip(),
+            "full_name":       fn,
+            "first_name":      parts[0] if parts else fn,
+            "last_name":       parts[1] if len(parts) > 1 else "",
             "enrollment_number": enrollment_no.strip(), "student_id": enrollment_no.strip(),
             "program": program.strip(), "year_of_study": year_of_study,
             "date_of_birth": str(dob) if dob else None,
@@ -179,13 +189,14 @@ def _render_user_card(user: dict, role_type: str) -> None:
                     st.markdown(f"**Publications:** {user['publications']}")
             else:
                 c1, c2, c3 = st.columns(3)
-                c1.markdown(f"**Enrollment No:** {user.get('enrollment_number','—') or '—'}")
-                c2.markdown(f"**Phone:** {user.get('phone','—') or '—'}")
+                c1.markdown(f"**Full Name:** {_full_name(user)}")
+                c2.markdown(f"**Enrollment No:** {user.get('enrollment_number','—') or '—'}")
                 c3.markdown(f"**Program:** {user.get('program','—') or '—'}")
-                c1.markdown(f"**Year:** {user.get('year_of_study','—') or '—'}")
-                c2.markdown(f"**DOB:** {user.get('date_of_birth','—') or '—'}")
+                c1.markdown(f"**Phone:** {user.get('phone','—') or '—'}")
+                c2.markdown(f"**Year:** {user.get('year_of_study','—') or '—'}")
+                c3.markdown(f"**DOB:** {user.get('date_of_birth','—') or '—'}")
                 if user.get("address"):
-                    c3.markdown(f"**Address:** {user['address']}")
+                    st.markdown(f"**Address:** {user['address']}")
 
             st.divider()
             col_edit, col_reset, col_del = st.columns(3)
@@ -248,98 +259,7 @@ def _render_user_card(user: dict, role_type: str) -> None:
 # ================================================================
 
 def _render_bulk_upload() -> None:
-    st.title("📤 Bulk Student Upload")
-
-    sems    = SemesterService.get_all()
-    courses = CourseService.get_all()
-
-    if not sems:
-        st.warning("Please create a semester first.")
-        return
-    if not courses:
-        st.warning("Please create at least one course first.")
-        return
-
-    sem_map    = {s["name"]: s["id"] for s in sems}
-    course_map = {f"{c['code']} — {c['name']}": c["id"] for c in courses}
-
-    st.markdown("""
-    **Instructions:**
-    - Upload an Excel (`.xlsx`) or CSV file with two columns:
-        - `Enrollment Number` — e.g. `01-11111-011`
-        - `Full Name` — e.g. `John Smith`
-    - Student email will be: `{enrollment_number}@{domain}`
-    - Temporary password: **ChangeYourPassword**
-    - Students will be prompted to change it on first login.
-    """)
-    st.divider()
-
-    c1, c2 = st.columns(2)
-    domain = c1.text_input("Email Domain", value="um.ar",
-                             placeholder="e.g. university.edu",
-                             help="Creates: enrollment@domain")
-
-    enroll_in_course = c2.checkbox("Also enroll students in a course")
-    course_id = semester_id = None
-
-    if enroll_in_course:
-        cc1, cc2 = st.columns(2)
-        sel_course  = cc1.selectbox("Course",   list(course_map.keys()))
-        sel_sem     = cc2.selectbox("Semester", list(sem_map.keys()))
-        course_id   = course_map[sel_course]
-        semester_id = sem_map[sel_sem]
-
-    st.divider()
-    uploaded_file = st.file_uploader(
-        "Upload Excel or CSV", type=["xlsx","xls","csv"], key="bulk_upload_file"
-    )
-
-    if not uploaded_file or not domain.strip():
-        return
-
-    df, error = StudentBulkService.parse_excel(uploaded_file)
-    if error:
-        st.error(f"❌ {error}")
-        return
-
-    st.success(f"✅ {len(df)} students found in file.")
-    st.divider()
-    section_header("Preview", "Review before creating accounts")
-
-    existing    = StudentBulkService.check_existing_enrollments(df["enrollment_number"].tolist())
-    preview_df  = df.copy()
-    preview_df["Email"]  = preview_df["enrollment_number"].apply(
-        lambda e: StudentBulkService.build_email(e, domain))
-    preview_df["Status"] = preview_df["enrollment_number"].apply(
-        lambda e: "⚠️ Already exists" if e in existing else "✅ New")
-    preview_df.columns   = ["Enrollment Number","Full Name","Email","Status"]
-
-    st.dataframe(preview_df, use_container_width=True, hide_index=True)
-
-    new_count  = len(preview_df[preview_df["Status"] == "✅ New"])
-    skip_count = len(existing)
-    c1, c2     = st.columns(2)
-    c1.metric("New accounts to create", new_count)
-    c2.metric("Already exist (skip)",   skip_count)
-
-    if new_count == 0:
-        st.warning("All students already have accounts.")
-        return
-
-    st.divider()
-    if st.button(f"🚀 Create {new_count} Student Account(s)",
-                  type="primary", use_container_width=True):
-        with st.spinner(f"Creating {new_count} accounts..."):
-            created, skipped, errors = StudentBulkService.create_student_accounts(
-                df, domain, course_id, semester_id)
-        if created:
-            st.success(f"✅ {created} account(s) created.")
-        if skipped:
-            st.info(f"⏭️ {skipped} skipped.")
-        if errors:
-            st.error(f"❌ {len(errors)} error(s):")
-            for err in errors:
-                st.caption(f"• {err}")
+    render_bulk_enrollment(domain_default="um.ar", allowed_course_ids=None, role="admin")
 
 
 # ================================================================
@@ -436,7 +356,7 @@ def admin_console() -> None:
             "📅 Semesters",
             "📚 Courses",
             "📋 Enrollment",
-            "📤 Bulk Upload",
+            "📋 Bulk Enrollment",
             "👨‍🏫 Faculty",
             "🎓 Students",
             "✅ Pending Approvals",
@@ -449,7 +369,7 @@ def admin_console() -> None:
     elif menu == "📅 Semesters":        _render_semesters()
     elif menu == "📚 Courses":          _render_courses()
     elif menu == "📋 Enrollment":       _render_enrollment_management()
-    elif menu == "📤 Bulk Upload":      _render_bulk_upload()
+    elif menu == "📋 Bulk Enrollment":      _render_bulk_upload()
     elif menu == "👨‍🏫 Faculty":          _render_users("faculty")
     elif menu == "🎓 Students":         _render_users("student")
     elif menu == "✅ Pending Approvals": _render_pending_approvals()
@@ -668,12 +588,20 @@ def _render_courses() -> None:
             c5, c6 = st.columns(2)
             c_credits  = c5.number_input("Credits",      min_value=1, max_value=6, value=3)
             c_max_stud = c6.number_input("Max Students", min_value=1, max_value=500, value=40)
+            c_course_id_override = st.text_input(
+                "Course ID (optional — leave blank to auto-generate)",
+                placeholder="e.g. CS3X7K2",
+                help="7-character alphanumeric. Auto-generated if left blank."
+            )
             c_desc = st.text_area("Description (optional)", height=60)
             if st.form_submit_button("Create Course", use_container_width=True):
                 if not c_name or not c_code:
                     st.warning("Course name and code are required.")
+                elif c_course_id_override and len(c_course_id_override.strip()) != 7:
+                    st.error("Course ID must be exactly 7 characters.")
                 elif CourseService.create(c_name, c_code, dept_map[c_dept],
-                                          sem_map[c_sem], c_credits, c_max_stud, c_desc):
+                                          sem_map[c_sem], c_credits, c_max_stud, c_desc,
+                                          c_course_id_override):
                     st.success(f"Course '{c_code} — {c_name}' created.")
                     st.rerun()
                 else:
@@ -696,13 +624,15 @@ def _render_courses() -> None:
         dept_name = (course.get("departments") or {}).get("name", "—")
         enrolled  = CourseService.get_enrollment_count(course["id"])
         with st.expander(
-            f"📘 **{course['code']}** — {course['name']} "
+            f"📘 **{course['code']}** — {course['name']}  "
+            f"| ID: `{course.get('course_id','—')}` "
             f"| {dept_name} | {course['credits']} cr "
             f"| {enrolled}/{course['max_students']} enrolled"
         ):
-            c1, c2 = st.columns(2)
-            c1.markdown(f"**Description:** {course.get('description') or '—'}")
-            c2.markdown(f"**Max Students:** {course['max_students']}")
+            c1, c2, c3 = st.columns(3)
+            c1.markdown(f"**Course ID:** `{course.get('course_id','—')}`")
+            c2.markdown(f"**Description:** {course.get('description') or '—'}")
+            c3.markdown(f"**Max Students:** {course['max_students']}")
 
             st.markdown("**👨‍🏫 Assigned Faculty:**")
             assigned = CourseService.get_assigned_faculty(course["id"])
