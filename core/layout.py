@@ -1,4 +1,5 @@
 import streamlit as st
+from ui.styles import inject_global_css, render_sidebar_logo, render_sidebar_user, section_header
 from typing import List
 
 
@@ -27,6 +28,7 @@ def base_console(title: str, menu_items: List[str]) -> str:
     navigation menu, and logout button.
     Returns the currently selected menu item.
     """
+    inject_global_css()
     role = st.session_state.get("role", "")
     user = st.session_state.get("user")
     profile = st.session_state.get("profile", {}) or {}
@@ -45,38 +47,9 @@ def base_console(title: str, menu_items: List[str]) -> str:
         display_name = f"{first} {last}".strip() or (user.email if user else "User")
 
     # ── Branding ──
-    st.sidebar.markdown("""
-        <div style="padding: 20px 16px 8px; border-bottom: 1px solid #2d3748; margin-bottom: 12px;">
-            <div style="font-size: 22px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">
-                🎓 SylemaX
-            </div>
-            <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">
-                Academic Management System
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+    render_sidebar_logo()
 
-    # ── User card ──
-    st.sidebar.markdown(f"""
-        <div style="
-            margin: 8px 12px 16px;
-            padding: 10px 14px;
-            background: #2d3748;
-            border-radius: 10px;
-        ">
-            <div style="font-size: 13px; font-weight: 600; color: #f1f5f9;">
-                {icon} {display_name}
-            </div>
-            <div style="margin-top: 4px;">
-                <span style="
-                    font-size: 10px; font-weight: 700;
-                    text-transform: uppercase; letter-spacing: 0.5px;
-                    padding: 2px 8px; border-radius: 10px;
-                    background: {bg}; color: {color};
-                ">{role}</span>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+    render_sidebar_user(display_name, role)
 
     # ── Navigation ──
     st.sidebar.markdown(
