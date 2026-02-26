@@ -6,6 +6,7 @@ from services.enrollment_service import EnrollmentService
 from ui.dashboard import render_dashboard
 from ui.components import render_change_password
 from services.grading_service import GradingService, score_to_letter
+from ui.reports import render_student_reports
 from services.upro_service import UProService
 from ui.styles import section_header
 
@@ -22,6 +23,7 @@ def student_console() -> None:
             "📊 Dashboard",
             "📚 My Courses",
             "📊 My Grades",
+            "📄 My Transcript",
             "🏆 UPro Grades",
             "🏷️ My Syndicate",
             "👤 My Profile",
@@ -122,6 +124,9 @@ def student_console() -> None:
     # ==============================================================
     # UPRO GRADES (released AOL grades)
     # ==============================================================
+    elif menu == "📄 My Transcript":
+        render_student_reports(user.id)
+
     elif menu == "🏆 UPro Grades":
         st.title("🏆 UPro Grades")
         aol_grades = UProService.get_student_aol_grades(user.id)
