@@ -5,6 +5,7 @@ from services.profile_service import ProfileService
 from services.enrollment_service import EnrollmentService
 from ui.dashboard import render_dashboard
 from ui.components import render_change_password
+from services.grading_service import GradingService, score_to_letter
 from ui.styles import section_header
 
 
@@ -19,6 +20,7 @@ def student_console() -> None:
         [
             "📊 Dashboard",
             "📚 My Courses",
+            "📊 My Grades",
             "👤 My Profile",
             "🔒 Change Password",
         ]
@@ -56,6 +58,63 @@ def student_console() -> None:
                     c3.markdown(f"**Credits:** {course.get('credits','—')}")
                     if course.get("description"):
                         st.markdown(f"**Description:** {course['description']}")
+
+
+    # ==============================================================
+    # MY GRADES
+    # ==============================================================
+    elif menu == "📊 My Grades":
+        st.title("📊 My Grades")
+
+        grades = GradingService.get_student_grades(user.id)
+
+        if not grades:
+            st.info("No grades have been released yet. Check back after your faculty submits and admin approves your grades.")
+        else:
+            from ui.styles import section_header
+
+            # GPA summary
+            gpa_vals = [g["gpa_points"] for g in grades if g.get("gpa_points") is not None]
+            cgpa = round(sum(gpa_vals) / len(gpa_vals), 2) if gpa_vals else None
+
+            c1, c2 = st.columns(2)
+            c1.metric("Courses with Released Grades", len(grades))
+            if cgpa is not None:
+                c2.metric("CGPA", cgpa)
+
+            st.divider()
+            section_header("Course Grades")
+
+            grade_colours = {
+                "A": "🟢", "A-": "🟢",
+                "B+": "🔵", "B": "🔵", "B-": "🔵",
+                "C+": "🟡", "C": "🟡", "C-": "🟡",
+                "D+": "🟠", "D": "🟠",
+                "F": "🔴",
+            }
+
+            for g in grades:
+                course  = g.get("courses", {}) or {}
+                letter  = g.get("letter_grade") or "—"
+                total   = g.get("total_score")
+                icon    = grade_colours.get(letter, "⚪")
+
+                with st.expander(
+                    f"{icon} **{course.get('code','—')}** — {course.get('name','—')} "
+                    f"| Grade: **{letter}** | Total: {f'{total:.2f}' if total else '—'}"
+                ):
+                    c1, c2, c3, c4, c5 = st.columns(5)
+                    c1.metric("Quiz",       f"{g.get('quiz_score','—')}")
+                    c2.metric("Assignment", f"{g.get('assignment_score','—')}")
+                    c3.metric("Midterm",    f"{g.get('midterm_score','—')}")
+                    c4.metric("Final",      f"{g.get('final_score','—')}")
+                    c5.metric("Total",      f"{total:.2f}" if total else "—")
+                    st.markdown(
+                        f"**Letter Grade:** {icon} **{letter}** &nbsp;&nbsp;"
+                        f"**GPA Points:** {g.get('gpa_points','—')} &nbsp;&nbsp;"
+                        f"**Credits:** {course.get('credits','—')}"
+                    )
+
 
     # ==============================================================
     # MY PROFILE
