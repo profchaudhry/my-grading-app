@@ -7,6 +7,7 @@ from services.semester_service import SemesterService
 from ui.dashboard import render_dashboard
 from ui.components import render_change_password
 from ui.bulk_enrollment import render_bulk_enrollment
+from ui.faculty_gradebook import render_faculty_gradebook
 from ui.styles import section_header
 
 
@@ -30,6 +31,7 @@ def faculty_console() -> None:
             "📊 Dashboard",
             "📚 My Courses",
             "📋 Bulk Enrollment",
+            "📒 Gradebook",
             "👤 My Profile",
             "🔒 Change Password",
         ]
@@ -102,6 +104,12 @@ def faculty_console() -> None:
             allowed_course_ids=allowed_cids,
             role="faculty",
         )
+
+    # ==============================================================
+    # GRADEBOOK
+    # ==============================================================
+    elif menu == "📒 Gradebook":
+        render_faculty_gradebook(user.id)
 
     # ==============================================================
     # MY PROFILE
