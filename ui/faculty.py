@@ -1,7 +1,6 @@
 import streamlit as st
 from core.layout import base_console
 from core.guards import require_role, require_approval
-from services.faculty_service import FacultyService
 from services.profile_service import ProfileService
 from services.course_service import CourseService
 from services.semester_service import SemesterService
@@ -54,9 +53,11 @@ def faculty_console() -> None:
             sem_names = list(sem_map.keys())
             default   = active_sem["name"] if active_sem and active_sem["name"] in sem_names \
                         else sem_names[0]
-            sel_sem_name = st.selectbox("Semester", sem_names,
-                                         index=sem_names.index(default),
-                                         key="faculty_sem_filter")
+            sel_sem_name = st.selectbox(
+                "Semester", sem_names,
+                index=sem_names.index(default),
+                key="faculty_sem_filter"
+            )
             sel_sem_id = sem_map[sel_sem_name]
         else:
             sel_sem_id = None
@@ -84,7 +85,7 @@ def faculty_console() -> None:
                         st.markdown(f"**Description:** {course['description']}")
 
     # ==============================================================
-    # MY PROFILE  — full view + full edit (except name & employee ID)
+    # MY PROFILE
     # ==============================================================
     elif menu == "👤 My Profile":
         st.title("👤 My Profile")
@@ -94,9 +95,8 @@ def faculty_console() -> None:
             profile = fresh
             st.session_state.profile = fresh
 
-        # ── Read-only fields (only editable by admin) ──
+        # ── Read-only (admin-only fields) ──
         section_header("Identity", "These fields can only be updated by an administrator")
-
         c1, c2 = st.columns(2)
         c1.markdown(f"**First Name:** {profile.get('first_name','—') or '—'}")
         c2.markdown(f"**Last Name:** {profile.get('last_name','—') or '—'}")
@@ -109,37 +109,38 @@ def faculty_console() -> None:
         section_header("Profile Details", "Update your contact and academic information")
 
         with st.form("faculty_profile_form"):
-            c1, c2 = st.columns(2)
-            phone         = c1.text_input("Phone Number",
-                                           value=profile.get("phone","") or "")
-            office        = c2.text_input("Office Location",
-                                           value=profile.get("office_location","") or "")
-            qualification = c1.text_input("Qualification (e.g. PhD, MSc)",
-                                           value=profile.get("qualification","") or "")
+            c1, c2         = st.columns(2)
+            phone          = c1.text_input("Phone Number",
+                                            value=profile.get("phone","") or "")
+            office         = c2.text_input("Office Location",
+                                            value=profile.get("office_location","") or "")
+            qualification  = c1.text_input("Qualification (e.g. PhD, MSc)",
+                                            value=profile.get("qualification","") or "")
             specialization = c2.text_input("Specialization / Subject Area",
                                             value=profile.get("specialization","") or "")
-            address       = st.text_input("Address",
-                                           value=profile.get("address","") or "")
-            publications  = st.text_area("Publications",
-                                          value=profile.get("publications","") or "",
-                                          height=100)
+            address        = st.text_input("Address",
+                                            value=profile.get("address","") or "")
+            publications   = st.text_area("Publications",
+                                           value=profile.get("publications","") or "",
+                                           height=100)
             submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
 
         if submitted:
             updates = {
-                "phone":          phone.strip(),
+                "phone":           phone.strip(),
                 "office_location": office.strip(),
-                "qualification":  qualification.strip(),
-                "specialization": specialization.strip(),
-                "address":        address.strip(),
-                "publications":   publications.strip(),
+                "qualification":   qualification.strip(),
+                "specialization":  specialization.strip(),
+                "address":         address.strip(),
+                "publications":    publications.strip(),
             }
-            if ProfileService.update_profile(user.id, updates):
-                st.success("Profile updated successfully.")
+            with st.spinner("Saving..."):
+                ok = ProfileService.update_profile(user.id, updates)
+            if ok:
                 st.session_state.profile.update(updates)
-                st.rerun()
+                st.success("✅ Profile updated successfully.")
             else:
-                st.error("Update failed. Please try again.")
+                st.error("❌ Save failed. Please try again.")
 
     # ==============================================================
     # CHANGE PASSWORD
