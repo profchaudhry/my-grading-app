@@ -224,12 +224,14 @@ def _render_user_card(user: dict, role_type: str) -> None:
                 data = _student_edit_form(user, f"edit_form_{uid}")
 
             if data is not None:
-                if AdminService.update_profile(uid, data):
-                    st.success("Profile updated successfully.")
+                with st.spinner("Saving changes..."):
+                    ok = AdminService.update_profile(uid, data)
+                if ok:
+                    st.success("✅ Profile updated successfully.")
                     del st.session_state[edit_key]
                     st.rerun()
                 else:
-                    st.error("Update failed.")
+                    st.error("❌ Save failed. Please try again.")
 
             if st.button("← Cancel", key=f"cancel_edit_{uid}"):
                 del st.session_state[edit_key]
