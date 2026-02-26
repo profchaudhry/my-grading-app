@@ -35,17 +35,15 @@ def student_console() -> None:
     # ==============================================================
     elif menu == "📚 My Courses":
         st.title("📚 My Enrolled Courses")
-
         enrollments = EnrollmentService.get_student_enrollments(user.id)
-
         if not enrollments:
             st.info("You are not enrolled in any courses yet.")
         else:
             section_header("Enrolled Courses", f"{len(enrollments)} course(s)")
             for e in enrollments:
-                course  = e.get("courses", {}) or {}
-                dept    = (course.get("departments") or {}).get("name", "—")
-                sem     = (e.get("semesters") or {}).get("name", "—")
+                course = e.get("courses", {}) or {}
+                dept   = (course.get("departments") or {}).get("name", "—")
+                sem    = (e.get("semesters") or {}).get("name", "—")
                 with st.expander(
                     f"📘 **{course.get('code','—')}** — {course.get('name','—')} | {sem}"
                 ):
@@ -62,17 +60,16 @@ def student_console() -> None:
     elif menu == "👤 My Profile":
         st.title("👤 My Profile")
 
-        # Always fetch fresh profile
+        # Always fetch a fresh copy
         fresh = ProfileService.get_profile(user.id)
         if fresh:
             profile = fresh
             st.session_state.profile = fresh
 
-        st.divider()
-
-        # ── Read-only credentials ──
-        section_header("Personal Information", "Contact your administrator to update these fields")
-
+        section_header(
+            "Personal Information",
+            "Contact your administrator to update these fields"
+        )
         c1, c2 = st.columns(2)
         c1.markdown(f"**First Name:** {profile.get('first_name','—') or '—'}")
         c2.markdown(f"**Last Name:** {profile.get('last_name','—') or '—'}")
@@ -83,31 +80,24 @@ def student_console() -> None:
         c1.markdown(f"**Date of Birth:** {profile.get('date_of_birth','—') or '—'}")
 
         st.divider()
-
-        # ── Editable fields ──
         section_header("Contact Information", "You can update these fields")
 
         with st.form("student_profile_form"):
-            email_val = st.text_input(
-                "Email Address",
-                value=user.email,
-                disabled=True,         # email is auth-managed, shown for info
-                help="Contact admin to change your email address."
-            )
             phone = st.text_input(
                 "Phone Number",
-                value=profile.get("phone","") or "",
+                value=profile.get("phone", "") or "",
                 placeholder="e.g. +1 234 567 8900"
             )
-            submitted = st.form_submit_button("Save Changes", use_container_width=True)
+            submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
 
         if submitted:
-            if ProfileService.update_profile(user.id, {"phone": phone.strip()}):
-                st.success("Profile updated successfully.")
+            with st.spinner("Saving..."):
+                ok = ProfileService.update_profile(user.id, {"phone": phone.strip()})
+            if ok:
                 st.session_state.profile["phone"] = phone.strip()
-                st.rerun()
+                st.success("✅ Profile updated successfully.")
             else:
-                st.error("Update failed. Please try again.")
+                st.error("❌ Save failed. Please try again.")
 
     # ==============================================================
     # CHANGE PASSWORD
