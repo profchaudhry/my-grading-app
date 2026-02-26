@@ -13,6 +13,7 @@ from services.profile_service import ProfileService
 from services.supabase_client import supabase
 from ui.styles import section_header
 from ui.components import render_change_password
+from ui.admin_gradebook import render_admin_gradebook
 from ui.bulk_enrollment import render_bulk_enrollment
 import logging
 
@@ -357,6 +358,7 @@ def admin_console() -> None:
             "📚 Courses",
             "📋 Enrollment",
             "📋 Bulk Enrollment",
+            "📒 Gradebook",
             "👨‍🏫 Faculty",
             "🎓 Students",
             "✅ Pending Approvals",
@@ -370,6 +372,7 @@ def admin_console() -> None:
     elif menu == "📚 Courses":          _render_courses()
     elif menu == "📋 Enrollment":       _render_enrollment_management()
     elif menu == "📋 Bulk Enrollment":      _render_bulk_upload()
+    elif menu == "📒 Gradebook":          render_admin_gradebook()
     elif menu == "👨‍🏫 Faculty":          _render_users("faculty")
     elif menu == "🎓 Students":         _render_users("student")
     elif menu == "✅ Pending Approvals": _render_pending_approvals()
