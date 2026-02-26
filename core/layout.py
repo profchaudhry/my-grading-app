@@ -35,9 +35,14 @@ def base_console(title: str, menu_items: List[str]) -> str:
     color = ROLE_COLORS.get(role, "#475569")
     bg = ROLE_BG.get(role, "#f1f5f9")
 
-    first = profile.get("first_name", "").strip()
-    last = profile.get("last_name", "").strip()
-    display_name = f"{first} {last}".strip() or (user.email if user else "User")
+    role_val = st.session_state.get("role", "")
+    # Students use full_name; faculty/admin use first+last
+    if role_val == "student" and profile.get("full_name","").strip():
+        display_name = profile["full_name"].strip()
+    else:
+        first = profile.get("first_name", "").strip()
+        last  = profile.get("last_name",  "").strip()
+        display_name = f"{first} {last}".strip() or (user.email if user else "User")
 
     # ── Branding ──
     st.sidebar.markdown("""
