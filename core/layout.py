@@ -1,41 +1,31 @@
 import streamlit as st
+import re
 from ui.styles import inject_global_css, render_sidebar_logo, render_sidebar_user
 from typing import List
 
 
 ROLE_ICONS  = {"admin": "🛡️", "faculty": "👨‍🏫", "faculty_ultra": "⭐", "student": "🎓"}
-ROLE_COLORS = {"admin": "#92400e", "faculty": "#1e40af", "faculty_ultra": "#6d28d9", "student": "#166534"}
-ROLE_BG     = {"admin": "#fef3c7", "faculty": "#dbeafe", "faculty_ultra": "#ede9fe",  "student": "#dcfce7"}
 
-# ── Grouped menu for admin ────────────────────────────────────────
-# Groups: {group_label: [items]}  — flat items have no group
-ADMIN_GROUPS = {
-    "📊 Dashboard":    None,          # top-level, no group
-    "🎓 Academic Ops": [
-        "🏛️ Departments",
-        "📅 Semesters",
-        "📚 Courses",
-    ],
-    "👥 User Control": [
-        "👨‍🏫 Faculty",
-        "🎓 Students",
-        "✅ Pending Approvals",
-        "📋 Enrollment",
-        "📋 Bulk Enrollment",
-    ],
-    "📒 Gradebook":    None,
-    "🏆 UPro Grade":   None,
-    "📈 Reports":      None,
-    "📣 Communications": None,
-    "🔒 Change Password": None,
-}
+# ── Admin grouped menu definition ────────────────────────────────
+# None = top-level item, list = collapsible group children
+ADMIN_GROUPS = [
+    ("item",  "📊 Dashboard"),
+    ("group", "🎓 Academic Ops", ["🏛️ Departments", "📅 Semesters", "📚 Courses"]),
+    ("group", "👥 User Control", ["👨‍🏫 Faculty", "🎓 Students", "✅ Pending Approvals",
+                                   "📋 Enrollment", "📋 Bulk Enrollment"]),
+    ("item",  "📒 Gradebook"),
+    ("item",  "🏆 UPro Grade"),
+    ("item",  "📈 Reports"),
+    ("item",  "📣 Communications"),
+    ("item",  "🔒 Change Password"),
+]
+
+
+def _slugify(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "_", s.lower())
 
 
 def base_console(title: str, menu_items: List[str]) -> str:
-    """
-    Renders the sidebar with branding, grouped navigation, and logout.
-    Returns the currently selected menu item.
-    """
     inject_global_css()
 
     role    = st.session_state.get("role", "")
@@ -53,183 +43,195 @@ def base_console(title: str, menu_items: List[str]) -> str:
     render_sidebar_logo()
     render_sidebar_user(display_name, role)
 
-    # ── Navigation label ──
-    st.sidebar.markdown(
-        '<div style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.45);'
-        'text-transform:uppercase;letter-spacing:1.5px;padding:4px 16px 6px;">Navigation</div>',
-        unsafe_allow_html=True,
-    )
+    # ── Global sidebar button CSS ──────────────────────────────
+    st.sidebar.markdown("""
+    <style>
+    /* All sidebar buttons — base reset */
+    section[data-testid="stSidebar"] .stButton > button {
+        background: transparent !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 8px !important;
+        text-align: left !important;
+        font-size: 0.88rem !important;
+        font-weight: 400 !important;
+        padding: 0.42rem 0.85rem !important;
+        margin-bottom: 2px !important;
+        width: 100% !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        box-shadow: none !important;
+        transition: background 0.15s ease !important;
+    }
+    section[data-testid="stSidebar"] .stButton > button:hover {
+        background: rgba(255,255,255,0.12) !important;
+    }
 
-    # For admin, use grouped rendering
+    /* Selected nav item */
+    section[data-testid="stSidebar"] .stButton > button[data-selected="true"],
+    section[data-testid="stSidebar"] .nav-selected > .stButton > button {
+        background: rgba(255,255,255,0.18) !important;
+        font-weight: 600 !important;
+        border-left: 3px solid rgba(255,255,255,0.85) !important;
+    }
+
+    /* Group header buttons */
+    section[data-testid="stSidebar"] .nav-group-header > .stButton > button {
+        color: rgba(255,255,255,0.55) !important;
+        font-size: 0.72rem !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.09em !important;
+        margin-top: 8px !important;
+        padding: 0.32rem 0.85rem !important;
+    }
+    section[data-testid="stSidebar"] .nav-group-header > .stButton > button:hover {
+        color: #ffffff !important;
+        background: rgba(255,255,255,0.07) !important;
+    }
+
+    /* Child items — indent */
+    section[data-testid="stSidebar"] .nav-child > .stButton > button {
+        padding-left: 1.4rem !important;
+        font-size: 0.85rem !important;
+        background: rgba(255,255,255,0.03) !important;
+    }
+    section[data-testid="stSidebar"] .nav-child > .stButton > button:hover {
+        background: rgba(255,255,255,0.10) !important;
+    }
+    section[data-testid="stSidebar"] .nav-child-selected > .stButton > button {
+        background: rgba(255,255,255,0.16) !important;
+        font-weight: 600 !important;
+        border-left: 3px solid rgba(255,255,255,0.80) !important;
+        padding-left: calc(1.4rem - 3px) !important;
+    }
+
+    /* Logout button */
+    section[data-testid="stSidebar"] .nav-logout > .stButton > button {
+        background: rgba(255,255,255,0.10) !important;
+        border: 1px solid rgba(255,255,255,0.22) !important;
+        border-radius: 8px !important;
+        color: #ffffff !important;
+        font-weight: 500 !important;
+        font-size: 0.85rem !important;
+        justify-content: center !important;
+        margin-top: 4px !important;
+    }
+    section[data-testid="stSidebar"] .nav-logout > .stButton > button:hover {
+        background: rgba(220,60,60,0.28) !important;
+        border-color: rgba(255,100,100,0.45) !important;
+    }
+
+    /* Nav section label */
+    .nav-section-label {
+        font-size: 10px;
+        font-weight: 700;
+        color: rgba(255,255,255,0.40);
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        padding: 4px 14px 6px;
+        margin-top: 4px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.sidebar.markdown('<div class="nav-section-label">Navigation</div>',
+                        unsafe_allow_html=True)
+
+    # ── Render nav ─────────────────────────────────────────────
     if role == "admin":
-        choice = _render_grouped_nav(menu_items)
+        choice = _render_admin_nav(menu_items)
     else:
+        # Non-admin: simple flat radio (styled by global CSS from styles.py)
         choice = st.sidebar.radio(
             "nav", menu_items,
             label_visibility="collapsed",
             key=f"nav_{role}",
         )
 
-    # ── Logout button — styled via CSS, placed at the bottom ──
-    st.sidebar.markdown("<div style='flex:1'></div>", unsafe_allow_html=True)
+    # ── Logout ─────────────────────────────────────────────────
     st.sidebar.divider()
-    st.sidebar.markdown("""
-    <style>
-    div[data-testid="stSidebar"] .logout-btn-wrap > button {
-        background: rgba(255,255,255,0.12) !important;
-        color: #ffffff !important;
-        border: 1px solid rgba(255,255,255,0.25) !important;
-        border-radius: 8px !important;
-        font-weight: 500 !important;
-        font-size: 0.85rem !important;
-    }
-    div[data-testid="stSidebar"] .logout-btn-wrap > button:hover {
-        background: rgba(255,80,80,0.30) !important;
-        border-color: rgba(255,120,120,0.50) !important;
-    }
-    </style>
-    <div class="logout-btn-wrap">
-    """, unsafe_allow_html=True)
-
+    st.sidebar.markdown('<div class="nav-logout">', unsafe_allow_html=True)
     if st.sidebar.button("🚪 Logout", use_container_width=True, key="logout_btn"):
         from services.auth_service import AuthService
         AuthService.logout()
         st.query_params.clear()
         st.session_state.clear()
         st.rerun()
-
-    st.sidebar.markdown("</div>", unsafe_allow_html=True)
+    st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
     return choice
 
 
-def _render_grouped_nav(menu_items: List[str]) -> str:
-    """Render grouped sidebar nav for admin with collapsible sections."""
-
-    # Determine which items are in menu_items (in case subset passed)
+def _render_admin_nav(menu_items: List[str]) -> str:
     item_set = set(menu_items)
+    nav_key  = "nav_admin"
 
-    # Build flat list preserving group membership
-    groups: dict[str, list] = {}
-    flat_items: list        = []
+    # Default to first valid item
+    if nav_key not in st.session_state or st.session_state[nav_key] not in item_set:
+        st.session_state[nav_key] = menu_items[0]
 
-    for key, members in ADMIN_GROUPS.items():
-        if members is None:
-            # Top-level item
-            if key in item_set:
-                flat_items.append(("item", key))
-        else:
-            # Group — only include if any members present
-            visible = [m for m in members if m in item_set]
-            if visible:
-                flat_items.append(("group", key, visible))
+    current = st.session_state[nav_key]
 
-    # Initialise session state for expanded groups
-    if "_sidebar_groups" not in st.session_state:
-        st.session_state["_sidebar_groups"] = {}
+    # Group expanded state
+    if "_grp_state" not in st.session_state:
+        st.session_state["_grp_state"] = {}
 
-    current = st.session_state.get(f"nav_{st.session_state.get('role','admin')}", menu_items[0])
-
-    # Make sure current selection is valid
-    if current not in item_set:
-        current = menu_items[0]
-
-    for entry in flat_items:
+    for entry in ADMIN_GROUPS:
         if entry[0] == "item":
             label = entry[1]
+            if label not in item_set:
+                continue
             selected = current == label
-            btn_style = "selected" if selected else ""
-            st.sidebar.markdown(f"""
-            <style>
-            .nav-item-{_slugify(label)} > button {{
-                background: {"rgba(255,255,255,0.18)" if selected else "transparent"} !important;
-                color: #ffffff !important;
-                border: none !important;
-                border-radius: 8px !important;
-                text-align: left !important;
-                font-weight: {"600" if selected else "400"} !important;
-                font-size: 0.88rem !important;
-                padding: 0.42rem 0.75rem !important;
-                margin-bottom: 2px !important;
-            }}
-            </style>
-            <div class="nav-item-{_slugify(label)}">
-            """, unsafe_allow_html=True)
-            if st.sidebar.button(label, key=f"nav_item_{_slugify(label)}",
+            css_cls  = "nav-child-selected" if selected else "nav-child" if False else ""
+            # Top-level items — use plain button
+            st.sidebar.markdown(
+                f'<div class="{"nav-child-selected" if selected else ""}">',
+                unsafe_allow_html=True
+            )
+            if st.sidebar.button(label, key=f"nav_{_slugify(label)}",
                                   use_container_width=True):
-                st.session_state[f"nav_{st.session_state.get('role','admin')}"] = label
+                st.session_state[nav_key] = label
                 st.rerun()
-            st.sidebar.markdown("</div>", unsafe_allow_html=True)
+            st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
         else:  # group
             _, group_label, members = entry
-            group_key  = f"_grp_{_slugify(group_label)}"
-            is_expanded = st.session_state["_sidebar_groups"].get(group_key, False)
-            # Auto-expand if current item is in this group
-            if current in members:
+            visible = [m for m in members if m in item_set]
+            if not visible:
+                continue
+
+            grp_key     = f"_grp_{_slugify(group_label)}"
+            is_expanded = st.session_state["_grp_state"].get(grp_key, False)
+
+            # Auto-expand if a child is selected
+            if current in visible:
                 is_expanded = True
-                st.session_state["_sidebar_groups"][group_key] = True
+                st.session_state["_grp_state"][grp_key] = True
 
             arrow = "▾" if is_expanded else "▸"
-            st.sidebar.markdown(f"""
-            <style>
-            .nav-group-{_slugify(group_label)} > button {{
-                background: transparent !important;
-                color: rgba(255,255,255,0.70) !important;
-                border: none !important;
-                border-radius: 6px !important;
-                text-align: left !important;
-                font-weight: 700 !important;
-                font-size: 0.76rem !important;
-                text-transform: uppercase !important;
-                letter-spacing: 0.08em !important;
-                padding: 0.35rem 0.75rem !important;
-                margin-top: 6px !important;
-            }}
-            .nav-group-{_slugify(group_label)} > button:hover {{
-                background: rgba(255,255,255,0.08) !important;
-                color: #ffffff !important;
-            }}
-            </style>
-            <div class="nav-group-{_slugify(group_label)}">
-            """, unsafe_allow_html=True)
-            if st.sidebar.button(f"{arrow} {group_label}",
-                                  key=f"grp_toggle_{_slugify(group_label)}",
+            st.sidebar.markdown('<div class="nav-group-header">',
+                                unsafe_allow_html=True)
+            if st.sidebar.button(f"{arrow}  {group_label}",
+                                  key=f"grp_{_slugify(group_label)}",
                                   use_container_width=True):
-                st.session_state["_sidebar_groups"][group_key] = not is_expanded
+                st.session_state["_grp_state"][grp_key] = not is_expanded
                 st.rerun()
-            st.sidebar.markdown("</div>", unsafe_allow_html=True)
+            st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
             if is_expanded:
-                for member in members:
+                for member in visible:
                     selected = current == member
-                    st.sidebar.markdown(f"""
-                    <style>
-                    .nav-child-{_slugify(member)} > button {{
-                        background: {"rgba(255,255,255,0.16)" if selected else "rgba(255,255,255,0.04)"} !important;
-                        color: #ffffff !important;
-                        border: none !important;
-                        border-left: {"3px solid rgba(255,255,255,0.7)" if selected else "3px solid transparent"} !important;
-                        border-radius: 0 6px 6px 0 !important;
-                        text-align: left !important;
-                        font-weight: {"600" if selected else "400"} !important;
-                        font-size: 0.86rem !important;
-                        padding: 0.38rem 0.75rem 0.38rem 1.1rem !important;
-                        margin-bottom: 2px !important;
-                        margin-left: 8px !important;
-                    }}
-                    </style>
-                    <div class="nav-child-{_slugify(member)}">
-                    """, unsafe_allow_html=True)
-                    if st.sidebar.button(member, key=f"nav_child_{_slugify(member)}",
+                    st.sidebar.markdown(
+                        f'<div class="{"nav-child-selected" if selected else "nav-child"}">',
+                        unsafe_allow_html=True
+                    )
+                    if st.sidebar.button(member,
+                                          key=f"nav_{_slugify(member)}",
                                           use_container_width=True):
-                        st.session_state[f"nav_{st.session_state.get('role','admin')}"] = member
+                        st.session_state[nav_key] = member
                         st.rerun()
-                    st.sidebar.markdown("</div>", unsafe_allow_html=True)
+                    st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
     return current
-
-
-def _slugify(s: str) -> str:
-    import re
-    return re.sub(r"[^a-z0-9]", "_", s.lower())
