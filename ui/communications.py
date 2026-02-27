@@ -515,9 +515,9 @@ def _render_announcement_list(rows: list, editable: bool = False,
             st.caption("  ·  ".join(meta_parts))
 
             if editable and (not created_by_filter or row.get("created_by") == created_by_filter):
-                c1, c2, c3 = st.columns(3)
-                is_active   = row.get("is_active", True)
-                toggle_lbl  = "🔴 Deactivate" if is_active else "🟢 Activate"
+                c1, c2, c3, c4 = st.columns(4)
+                is_active  = row.get("is_active", True)
+                toggle_lbl = "🔴 Deactivate" if is_active else "🟢 Activate"
                 if c1.button(toggle_lbl, key=f"ann_tog_{row['id']}",
                               use_container_width=True):
                     AnnouncementService.toggle_active(row["id"], not is_active)
@@ -528,10 +528,36 @@ def _render_announcement_list(rows: list, editable: bool = False,
                     AnnouncementService.update(row["id"],
                                                {"pinned": not row.get("pinned")})
                     st.rerun()
-                if c3.button("🗑️ Delete", key=f"ann_del_{row['id']}",
+                if c3.button("✏️ Edit", key=f"ann_edit_{row['id']}",
+                              use_container_width=True):
+                    st.session_state[f"_edit_ann_{row['id']}"] = True
+                if c4.button("🗑️ Delete", key=f"ann_del_{row['id']}",
                               use_container_width=True):
                     AnnouncementService.delete(row["id"])
                     st.rerun()
+
+                # Inline edit form
+                if st.session_state.get(f"_edit_ann_{row['id']}"):
+                    st.divider()
+                    with st.form(f"ann_edit_form_{row['id']}"):
+                        st.markdown("**✏️ Edit Announcement**")
+                        new_title = st.text_input("Title", value=row["title"])
+                        new_body  = st.text_area("Message", value=row["body"], height=100)
+                        new_pinned = st.checkbox("📌 Pinned", value=row.get("pinned", False))
+                        fc1, fc2  = st.columns(2)
+                        save = fc1.form_submit_button("💾 Save", use_container_width=True)
+                        cancel = fc2.form_submit_button("✖ Cancel", use_container_width=True)
+                    if save:
+                        AnnouncementService.update(row["id"], {
+                            "title":  new_title,
+                            "body":   new_body,
+                            "pinned": new_pinned,
+                        })
+                        st.session_state.pop(f"_edit_ann_{row['id']}", None)
+                        st.rerun()
+                    if cancel:
+                        st.session_state.pop(f"_edit_ann_{row['id']}", None)
+                        st.rerun()
 
 
 def _render_marquee_list(rows: list) -> None:
@@ -539,9 +565,9 @@ def _render_marquee_list(rows: list) -> None:
         st.info("No tickers yet.")
         return
     for row in rows:
-        bg  = row.get("bg_color",  "#307890")
-        txt = row.get("text_color","#ffffff")
-        active = row.get("is_active", True)
+        bg     = row.get("bg_color",   "#307890")
+        txt    = row.get("text_color", "#ffffff")
+        active = row.get("is_active",  True)
         with st.expander(
             f"{'🟢' if active else '🔴'} {row['message'][:60]}{'...' if len(row['message'])>60 else ''}  "
             f"·  {_audience_label(row)}",
@@ -555,20 +581,54 @@ def _render_marquee_list(rows: list) -> None:
             col1, col2 = st.columns(2)
             col1.caption(f"Speed: {row.get('speed','normal')}  ·  From: {_fmt_dt(row.get('starts_at'))}")
             col2.caption(f"Until: {_fmt_dt(row.get('ends_at'))}  ·  Audience: {_audience_label(row)}")
-            ca, cb = st.columns(2)
+
+            ca, cb, cc = st.columns(3)
             lbl = "🔴 Deactivate" if active else "🟢 Activate"
             if ca.button(lbl, key=f"mq_tog_{row['id']}", use_container_width=True):
                 MarqueeService.update(row["id"], {"is_active": not active})
                 st.rerun()
-            if cb.button("🗑️ Delete", key=f"mq_del_{row['id']}", use_container_width=True):
+            if cb.button("✏️ Edit", key=f"mq_edit_{row['id']}", use_container_width=True):
+                st.session_state[f"_edit_mq_{row['id']}"] = True
+            if cc.button("🗑️ Delete", key=f"mq_del_{row['id']}", use_container_width=True):
                 MarqueeService.delete(row["id"])
                 st.rerun()
+
+            # Inline edit form
+            if st.session_state.get(f"_edit_mq_{row['id']}"):
+                st.divider()
+                with st.form(f"mq_edit_form_{row['id']}"):
+                    st.markdown("**✏️ Edit Ticker**")
+                    new_msg   = st.text_input("Message", value=row["message"])
+                    ec1, ec2, ec3 = st.columns(3)
+                    new_speed = ec1.selectbox("Speed", ["slow","normal","fast"],
+                                              index=["slow","normal","fast"].index(row.get("speed","normal")),
+                                              key=f"mq_spd_{row['id']}")
+                    new_bg    = ec2.color_picker("Background", value=row.get("bg_color","#307890"),
+                                                  key=f"mq_bg_{row['id']}")
+                    new_txt   = ec3.color_picker("Text Colour", value=row.get("text_color","#ffffff"),
+                                                  key=f"mq_txt_{row['id']}")
+                    fc1, fc2  = st.columns(2)
+                    save   = fc1.form_submit_button("💾 Save",   use_container_width=True)
+                    cancel = fc2.form_submit_button("✖ Cancel", use_container_width=True)
+                if save:
+                    MarqueeService.update(row["id"], {
+                        "message":    new_msg,
+                        "speed":      new_speed,
+                        "bg_color":   new_bg,
+                        "text_color": new_txt,
+                    })
+                    st.session_state.pop(f"_edit_mq_{row['id']}", None)
+                    st.rerun()
+                if cancel:
+                    st.session_state.pop(f"_edit_mq_{row['id']}", None)
+                    st.rerun()
 
 
 def _render_notification_list(rows: list) -> None:
     if not rows:
         st.info("No login notifications yet.")
         return
+    ICONS = ["📢", "⚠️", "ℹ️", "🎉", "📅", "🔔", "✅", "❗"]
     for row in rows:
         active = row.get("is_active", True)
         with st.expander(
@@ -585,11 +645,44 @@ def _render_notification_list(rows: list) -> None:
             col1, col2 = st.columns(2)
             col1.caption(f"Audience: {_audience_label(row)}  ·  Show once: {row.get('show_once',True)}")
             col2.caption(f"Active: {_fmt_dt(row.get('starts_at'))} → {_fmt_dt(row.get('ends_at'))}")
-            ca, cb = st.columns(2)
+
+            ca, cb, cc = st.columns(3)
             lbl = "🔴 Deactivate" if active else "🟢 Activate"
             if ca.button(lbl, key=f"notif_tog_{row['id']}", use_container_width=True):
                 NotificationService.update(row["id"], {"is_active": not active})
                 st.rerun()
-            if cb.button("🗑️ Delete", key=f"notif_del_{row['id']}", use_container_width=True):
+            if cb.button("✏️ Edit", key=f"notif_edit_{row['id']}", use_container_width=True):
+                st.session_state[f"_edit_notif_{row['id']}"] = True
+            if cc.button("🗑️ Delete", key=f"notif_del_{row['id']}", use_container_width=True):
                 NotificationService.delete(row["id"])
                 st.rerun()
+
+            # Inline edit form
+            if st.session_state.get(f"_edit_notif_{row['id']}"):
+                st.divider()
+                with st.form(f"notif_edit_form_{row['id']}"):
+                    st.markdown("**✏️ Edit Notification**")
+                    ec1, ec2  = st.columns([1, 5])
+                    new_icon  = ec1.selectbox("Icon", ICONS,
+                                               index=ICONS.index(row.get("icon","📢"))
+                                               if row.get("icon","📢") in ICONS else 0,
+                                               key=f"notif_icon_{row['id']}")
+                    new_title = ec2.text_input("Title", value=row["title"])
+                    new_msg   = st.text_area("Message", value=row["message"], height=100)
+                    new_once  = st.checkbox("Show once per user",
+                                             value=row.get("show_once", True))
+                    fc1, fc2  = st.columns(2)
+                    save   = fc1.form_submit_button("💾 Save",   use_container_width=True)
+                    cancel = fc2.form_submit_button("✖ Cancel", use_container_width=True)
+                if save:
+                    NotificationService.update(row["id"], {
+                        "title":     new_title,
+                        "message":   new_msg,
+                        "icon":      new_icon,
+                        "show_once": new_once,
+                    })
+                    st.session_state.pop(f"_edit_notif_{row['id']}", None)
+                    st.rerun()
+                if cancel:
+                    st.session_state.pop(f"_edit_notif_{row['id']}", None)
+                    st.rerun()
