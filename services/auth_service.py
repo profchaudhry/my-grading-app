@@ -23,6 +23,11 @@ class AuthService(BaseService):
                 logger.warning(f"Login failed: no user returned for {email}")
                 return None
 
+            # Extract session tokens for persistence
+            session = getattr(response, "session", None)
+            access_token  = getattr(session, "access_token",  None) if session else None
+            refresh_token = getattr(session, "refresh_token", None) if session else None
+
             profile_response = (
                 supabase
                 .table("profiles")
@@ -37,10 +42,59 @@ class AuthService(BaseService):
 
             profile = profile_response.data[0]
             logger.info(f"Login successful for {email} | role='{profile.get('role')}'")
-            return {"user": user, "profile": profile}
+            return {
+                "user":          user,
+                "profile":       profile,
+                "access_token":  access_token,
+                "refresh_token": refresh_token,
+            }
 
         except Exception as e:
             logger.exception(f"Login error for {email}")
+            return None
+
+    # ==========================================================
+    # RESTORE SESSION (called on every page load)
+    # ==========================================================
+    @staticmethod
+    def restore_session(access_token: str, refresh_token: str) -> dict | None:
+        """
+        Restore a Supabase session from stored tokens.
+        Returns {"user": user, "profile": profile} on success, None on failure.
+        """
+        try:
+            response = supabase.auth.set_session(access_token, refresh_token)
+            user = getattr(response, "user", None)
+            if not user or not getattr(user, "id", None):
+                return None
+
+            # Get fresh tokens in case they were refreshed
+            session = getattr(response, "session", None)
+            new_access  = getattr(session, "access_token",  access_token)  if session else access_token
+            new_refresh = getattr(session, "refresh_token", refresh_token) if session else refresh_token
+
+            profile_response = (
+                supabase
+                .table("profiles")
+                .select("*")
+                .eq("id", user.id)
+                .execute()
+            )
+
+            if not profile_response.data:
+                return None
+
+            profile = profile_response.data[0]
+            logger.info(f"Session restored for user {user.id} | role='{profile.get('role')}'")
+            return {
+                "user":          user,
+                "profile":       profile,
+                "access_token":  new_access,
+                "refresh_token": new_refresh,
+            }
+
+        except Exception as e:
+            logger.warning(f"Session restore failed: {e}")
             return None
 
     # ==========================================================
@@ -54,13 +108,7 @@ class AuthService(BaseService):
         last_name:   str = "",
         employee_id: str = "",
     ) -> bool:
-        """
-        Registers a faculty member.
-        Captures full name and employee ID at registration time.
-        These can only be edited by admin afterwards.
-        """
         try:
-            # Step 1: Create auth user
             response = supabase.auth.sign_up({
                 "email":    email,
                 "password": password,
@@ -71,7 +119,6 @@ class AuthService(BaseService):
                 logger.warning(f"Faculty sign_up failed for {email}")
                 return False
 
-            # Step 2: Update the trigger-created profile with all registration data
             update_response = (
                 supabase
                 .table("profiles")
@@ -87,7 +134,6 @@ class AuthService(BaseService):
             )
 
             if not update_response.data:
-                # Fallback upsert
                 supabase.table("profiles").upsert({
                     "id":          user.id,
                     "email":       email,
