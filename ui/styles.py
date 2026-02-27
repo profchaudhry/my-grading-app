@@ -382,6 +382,10 @@ def inject_global_css() -> None:
     #MainMenu {{ visibility: hidden; }}
     footer {{ visibility: hidden; }}
     [data-testid="stToolbar"] {{ display: none; }}
+    /* Hide sidebar collapse/expand toggle button */
+    [data-testid="collapsedControl"] {{ display: none !important; }}
+    button[kind="header"] {{ display: none !important; }}
+    [data-testid="stSidebarCollapseButton"] {{ display: none !important; }}
     </style>
     """, unsafe_allow_html=True)
 
