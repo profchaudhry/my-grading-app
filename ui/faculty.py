@@ -9,6 +9,7 @@ from ui.components import render_change_password
 from ui.bulk_enrollment import render_bulk_enrollment
 from ui.faculty_gradebook import render_faculty_gradebook
 from ui.reports import render_faculty_reports
+from ui.communications import render_faculty_communications, render_student_announcements
 from ui.styles import section_header
 
 
@@ -34,6 +35,7 @@ def faculty_console() -> None:
             "📋 Bulk Enrollment",
             "📒 Gradebook",
             "📈 Reports",
+            "📣 Communications",
             "👤 My Profile",
             "🔒 Change Password",
         ]
@@ -115,6 +117,9 @@ def faculty_console() -> None:
 
     elif menu == "📈 Reports":
         render_faculty_reports(user.id)
+
+    elif menu == "📣 Communications":
+        render_faculty_communications(user.id, role)
 
     # ==============================================================
     # MY PROFILE
