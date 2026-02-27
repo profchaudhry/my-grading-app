@@ -115,6 +115,19 @@ def inject_global_css() -> None:
         border-color: rgba(255,255,255,0.15) !important;
         margin: 10px 0 !important;
     }}
+    /* Force sidebar to always be visible */
+    [data-testid="stSidebar"],
+    [data-testid="stSidebar"][aria-expanded="false"] {{
+        display: block !important;
+        visibility: visible !important;
+        width: 21rem !important;
+        min-width: 21rem !important;
+        transform: none !important;
+        transition: none !important;
+    }}
+    section[data-testid="stSidebar"] > div {{
+        width: 21rem !important;
+    }}
     .sidebar-user-badge {{
         background: rgba(255,255,255,0.11);
         border: 1px solid rgba(255,255,255,0.18);
@@ -382,11 +395,39 @@ def inject_global_css() -> None:
     #MainMenu {{ visibility: hidden; }}
     footer {{ visibility: hidden; }}
     [data-testid="stToolbar"] {{ display: none; }}
-    /* Hide sidebar collapse/expand toggle button */
-    [data-testid="collapsedControl"] {{ display: none !important; }}
-    button[kind="header"] {{ display: none !important; }}
-    [data-testid="stSidebarCollapseButton"] {{ display: none !important; }}
+    /* Force sidebar always visible — never let it collapse fully */
+    [data-testid="stSidebar"] {{
+        transform: none !important;
+        visibility: visible !important;
+        min-width: 240px !important;
+    }}
+    /* Keep sidebar always visible */
+    section[data-testid="stSidebar"] {{
+        transform: none !important;
+        margin-left: 0 !important;
+        visibility: visible !important;
+    }}
+    /* Keep the expand arrow visible so user can always reopen */
+    [data-testid="collapsedControl"] {{
+        display: flex !important;
+        visibility: visible !important;
+    }}
+    [data-testid="stSidebarCollapseButton"] {{
+        display: flex !important;
+        visibility: visible !important;
+    }}
     </style>
+    """, unsafe_allow_html=True)
+
+    # Auto-click expand button if sidebar is collapsed
+    st.markdown("""
+    <script>
+    (function tryExpand() {
+        var btn = window.parent.document.querySelector('[data-testid="collapsedControl"] button');
+        if (btn) { btn.click(); return; }
+        setTimeout(tryExpand, 400);
+    })();
+    </script>
     """, unsafe_allow_html=True)
 
 
