@@ -15,6 +15,7 @@ from ui.styles import section_header
 from ui.components import render_change_password
 from ui.admin_gradebook import render_admin_gradebook
 from ui.reports import render_admin_reports
+from ui.communications import render_admin_communications
 from ui.upro_grade import render_upro_grade
 from ui.bulk_enrollment import render_bulk_enrollment
 import logging
@@ -411,6 +412,7 @@ def admin_console() -> None:
             "📒 Gradebook",
             "🏆 UPro Grade",
             "📈 Reports",
+            "📣 Communications",
             "👨‍🏫 Faculty",
             "🎓 Students",
             "✅ Pending Approvals",
@@ -428,6 +430,7 @@ def admin_console() -> None:
     elif menu == "🏆 UPro Grade":
         _render_admin_upro()
     elif menu == "📈 Reports":            render_admin_reports()
+    elif menu == "📣 Communications":     render_admin_communications(user.id)
     elif menu == "👨‍🏫 Faculty":          _render_users("faculty")
     elif menu == "🎓 Students":         _render_users("student")
     elif menu == "✅ Pending Approvals": _render_pending_approvals()
