@@ -86,14 +86,18 @@ def render_login() -> None:
     div[data-testid="stVerticalBlock"] > div {{
         gap: 0 !important;
     }}
-    /* PRIMARY BUTTON — force brand teal, kill red */
-    .stButton > button,
-    button[data-testid="baseButton-primary"],
-    [data-testid="baseButton-primary"] {{
+    /* PRIMARY BUTTON — override Streamlit's inline red with max specificity */
+    html body div[data-testid="stForm"] div.stButton > button,
+    html body div.stButton > button,
+    html body button[data-testid="baseButton-primary"],
+    html body [data-testid="baseButton-primary"],
+    html body .stButton button[kind="primary"] {{
         background: {BRAND['core']} !important;
         background-color: {BRAND['core']} !important;
+        background-image: none !important;
         color: #ffffff !important;
         border: none !important;
+        border-color: {BRAND['core']} !important;
         border-radius: 8px !important;
         padding: 0.52rem 1.2rem !important;
         font-family: 'DM Sans', sans-serif !important;
@@ -104,10 +108,12 @@ def render_login() -> None:
         width: 100% !important;
         margin-top: 0.5rem !important;
     }}
-    .stButton > button:hover,
-    [data-testid="baseButton-primary"]:hover {{
+    html body div.stButton > button:hover,
+    html body [data-testid="baseButton-primary"]:hover {{
         background: {BRAND['deep']} !important;
         background-color: {BRAND['deep']} !important;
+        background-image: none !important;
+        border-color: {BRAND['deep']} !important;
         box-shadow: 0 5px 16px rgba(24,96,120,0.36) !important;
         transform: translateY(-1px) !important;
     }}
