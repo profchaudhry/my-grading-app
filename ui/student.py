@@ -5,8 +5,10 @@ from services.profile_service import ProfileService
 from services.enrollment_service import EnrollmentService
 from ui.dashboard import render_dashboard
 from ui.components import render_change_password
+from services.supabase_client import supabase
 from services.grading_service import GradingService, score_to_letter
 from ui.reports import render_student_reports
+from ui.communications import render_student_announcements
 from services.upro_service import UProService
 from ui.styles import section_header
 
@@ -22,6 +24,7 @@ def student_console() -> None:
         [
             "📊 Dashboard",
             "📚 My Courses",
+            "📋 Announcements",
             "📊 My Grades",
             "📄 My Transcript",
             "🏆 UPro Grades",
@@ -124,6 +127,10 @@ def student_console() -> None:
     # ==============================================================
     # UPRO GRADES (released AOL grades)
     # ==============================================================
+    elif menu == "📋 Announcements":
+        enrolled = [e["course_id"] for e in (supabase.table("enrollments").select("course_id").eq("student_id", user.id).eq("status","active").execute().data or [])]
+        render_student_announcements(user.id, role, enrolled)
+
     elif menu == "📄 My Transcript":
         render_student_reports(user.id)
 
