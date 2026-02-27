@@ -119,7 +119,7 @@ def faculty_console() -> None:
         render_faculty_reports(user.id)
 
     elif menu == "📣 Communications":
-        render_faculty_communications(user.id, role)
+        render_faculty_communications(user.id, "faculty")
 
     # ==============================================================
     # MY PROFILE
