@@ -1,5 +1,5 @@
 """
-Sylemax Login — simple centered card on white background.
+Sylemax Login — compact, fully above the fold, no scroll needed.
 """
 import streamlit as st
 import base64
@@ -18,10 +18,9 @@ def _logo_b64() -> str:
 def render_login() -> None:
     logo_b64 = _logo_b64()
 
-    # Inject fonts + full page styles BEFORE any widget
     st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Serif+Display&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&display=swap');
     </style>
     """, unsafe_allow_html=True)
 
@@ -30,91 +29,101 @@ def render_login() -> None:
     html, body, [class*="css"] {{
         font-family: 'DM Sans', sans-serif !important;
     }}
-    /* White page */
     .stApp {{
-        background: #f0f6f7 !important;
+        background: #eef5f6 !important;
     }}
-    /* Remove default padding */
+    /* Tight centered container */
     .main .block-container {{
-        padding-top: 2rem !important;
-        padding-bottom: 1rem !important;
-        max-width: 480px !important;
+        padding-top: 1.2rem !important;
+        padding-bottom: 0.5rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+        max-width: 440px !important;
         margin: 0 auto !important;
     }}
-    /* Hide all chrome */
+    /* Hide chrome */
     #MainMenu, footer, header,
     [data-testid="stToolbar"],
     [data-testid="stHeader"],
-    [data-testid="stDecoration"] {{
+    [data-testid="stDecoration"],
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="collapsedControl"] {{
         display: none !important;
-        visibility: hidden !important;
     }}
-    /* ── Form resets ── */
+    /* Form */
     [data-testid="stForm"] {{
         background: transparent !important;
         border: none !important;
         box-shadow: none !important;
         padding: 0 !important;
     }}
-    /* Input labels */
-    .stTextInput label, .stTextArea label {{
-        font-size: 0.74rem !important;
+    /* Input labels — compact */
+    .stTextInput label {{
+        font-size: 0.72rem !important;
         font-weight: 600 !important;
         color: {BRAND['text_mid']} !important;
         text-transform: uppercase !important;
         letter-spacing: 0.07em !important;
+        margin-bottom: 2px !important;
     }}
-    /* Input fields */
+    /* Input fields — compact height */
     .stTextInput > div > div > input {{
         border: 1.5px solid {BRAND['border']} !important;
         border-radius: 8px !important;
-        padding: 0.52rem 0.85rem !important;
+        padding: 0.42rem 0.8rem !important;
         font-size: 0.88rem !important;
         background: #ffffff !important;
         color: {BRAND['text_dark']} !important;
-        transition: border-color 0.15s ease !important;
+        height: 2.4rem !important;
     }}
     .stTextInput > div > div > input:focus {{
         border-color: {BRAND['core']} !important;
-        box-shadow: 0 0 0 3px rgba(48,120,144,0.12) !important;
+        box-shadow: 0 0 0 3px rgba(48,120,144,0.11) !important;
         outline: none !important;
     }}
-    /* ALL buttons — reset first then style */
-    .stButton > button,
-    [data-testid="baseButton-primary"],
-    [data-testid="baseButton-secondary"] {{
-        font-family: 'DM Sans', sans-serif !important;
-        font-weight: 600 !important;
-        font-size: 0.88rem !important;
-        border-radius: 8px !important;
-        padding: 0.55rem 1.2rem !important;
-        transition: all 0.15s ease !important;
-        cursor: pointer !important;
+    /* Remove default spacing between widgets */
+    .stTextInput {{ margin-bottom: 0.5rem !important; }}
+    div[data-testid="stVerticalBlock"] > div {{
+        gap: 0 !important;
     }}
-    /* Primary = brand teal */
+    /* PRIMARY BUTTON — force brand teal, kill red */
+    .stButton > button,
+    button[data-testid="baseButton-primary"],
     [data-testid="baseButton-primary"] {{
         background: {BRAND['core']} !important;
+        background-color: {BRAND['core']} !important;
         color: #ffffff !important;
         border: none !important;
+        border-radius: 8px !important;
+        padding: 0.52rem 1.2rem !important;
+        font-family: 'DM Sans', sans-serif !important;
+        font-size: 0.88rem !important;
+        font-weight: 600 !important;
         box-shadow: 0 3px 10px rgba(48,120,144,0.28) !important;
+        transition: all 0.15s ease !important;
+        width: 100% !important;
+        margin-top: 0.5rem !important;
     }}
+    .stButton > button:hover,
     [data-testid="baseButton-primary"]:hover {{
         background: {BRAND['deep']} !important;
+        background-color: {BRAND['deep']} !important;
         box-shadow: 0 5px 16px rgba(24,96,120,0.36) !important;
         transform: translateY(-1px) !important;
     }}
-    /* Tabs */
+    /* Tabs — compact */
     .stTabs [data-baseweb="tab-list"] {{
-        background: #e8f2f4 !important;
-        border-radius: 9px !important;
+        background: #deeaec !important;
+        border-radius: 8px !important;
         padding: 3px !important;
         border-bottom: none !important;
         gap: 2px !important;
+        margin-bottom: 0.7rem !important;
     }}
     .stTabs [data-baseweb="tab"] {{
-        border-radius: 7px !important;
-        padding: 0.38rem 1rem !important;
-        font-size: 0.83rem !important;
+        border-radius: 6px !important;
+        padding: 0.3rem 0.9rem !important;
+        font-size: 0.82rem !important;
         font-weight: 500 !important;
         color: {BRAND['text_mid']} !important;
         background: transparent !important;
@@ -127,41 +136,36 @@ def render_login() -> None:
         box-shadow: 0 1px 4px rgba(24,96,120,0.10) !important;
     }}
     .stTabs [data-baseweb="tab-panel"] {{
-        padding-top: 1rem !important;
+        padding-top: 0.5rem !important;
     }}
     /* Alert boxes */
     [data-testid="stAlert"] {{
-        border-radius: 8px !important;
-        font-size: 0.84rem !important;
+        border-radius: 7px !important;
+        font-size: 0.82rem !important;
+        padding: 0.5rem 0.8rem !important;
+        margin-top: 0.4rem !important;
     }}
     </style>
     """, unsafe_allow_html=True)
 
-    # ── Logo ──────────────────────────────────────────────────────
+    # ── Logo — small and tight ─────────────────────────────────────
     if logo_b64:
         st.markdown(f"""
-        <div style="text-align:center; padding: 0.5rem 0 0.25rem;">
+        <div style="text-align:center; padding: 0 0 0.4rem;">
             <img src="data:image/png;base64,{logo_b64}"
-                 style="width:180px; height:auto;"
+                 style="width:150px; height:auto;"
                  alt="Sylemax"/>
         </div>
         """, unsafe_allow_html=True)
-    else:
-        st.markdown(f"""
-        <div style="text-align:center; padding: 1rem 0 0.5rem;">
-            <span style="font-family:'DM Serif Display',serif; font-size:2rem;
-                         color:{BRAND['deep']}; letter-spacing:-0.02em;">Sylemax</span>
-        </div>
-        """, unsafe_allow_html=True)
 
-    # ── Heading ───────────────────────────────────────────────────
+    # ── Heading — compact ─────────────────────────────────────────
     st.markdown(f"""
-    <div style="text-align:center; margin-bottom:1.4rem;">
-        <div style="font-family:'DM Serif Display',serif; font-size:1.55rem;
-                    color:{BRAND['deep']}; line-height:1.2; margin-bottom:0.3rem;">
+    <div style="text-align:center; margin-bottom:1rem;">
+        <div style="font-family:'DM Serif Display',serif; font-size:1.45rem;
+                    color:{BRAND['deep']}; line-height:1.2; margin-bottom:0.2rem;">
             Welcome back
         </div>
-        <div style="font-size:0.78rem; color:{BRAND['text_light']};">
+        <div style="font-size:0.75rem; color:{BRAND['text_light']};">
             Sign in to your Sylemax account to continue
         </div>
     </div>
@@ -172,10 +176,10 @@ def render_login() -> None:
 
     with tab_login:
         with st.form("login_form"):
-            email    = st.text_input("Email Address", placeholder="your@email.com")
+            email    = st.text_input("Email Address", placeholder="your@email.com",
+                                      label_visibility="visible")
             password = st.text_input("Password", type="password",
                                       placeholder="Enter your password")
-            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
             submitted = st.form_submit_button(
                 "Sign In →", use_container_width=True, type="primary"
             )
@@ -191,7 +195,6 @@ def render_login() -> None:
                     st.session_state.user    = result["user"]
                     st.session_state.role    = profile.get("role", "student")
                     st.session_state.profile = profile
-                    # Save tokens to URL so session survives browser refresh
                     if result.get("access_token"):
                         st.query_params["at"] = result["access_token"]
                     if result.get("refresh_token"):
@@ -202,8 +205,8 @@ def render_login() -> None:
 
     with tab_register:
         st.markdown(
-            f"<p style='font-size:0.76rem; color:{BRAND['text_light']}; margin-bottom:0.6rem;'>"
-            f"Faculty registration requires administrator approval before access is granted.</p>",
+            f"<p style='font-size:0.73rem;color:{BRAND['text_light']};margin-bottom:0.5rem;'>"
+            f"Faculty registration requires administrator approval.</p>",
             unsafe_allow_html=True
         )
         with st.form("register_form"):
@@ -213,10 +216,8 @@ def render_login() -> None:
             employee_id  = st.text_input("Employee ID *", placeholder="EMP-12345")
             reg_email    = st.text_input("Email *",       placeholder="faculty@institution.edu")
             c3, c4       = st.columns(2)
-            reg_password = c3.text_input("Password *",         type="password",
-                                          placeholder="Min 8 chars")
+            reg_password = c3.text_input("Password *",         type="password", placeholder="Min 8 chars")
             confirm_pw   = c4.text_input("Confirm Password *", type="password")
-            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
             reg_submitted = st.form_submit_button(
                 "Submit Registration", use_container_width=True, type="primary"
             )
@@ -244,12 +245,11 @@ def render_login() -> None:
 
     # ── Footer ────────────────────────────────────────────────────
     st.markdown(f"""
-    <div style="text-align:center; margin-top:1.5rem; font-size:0.67rem;
+    <div style="text-align:center; margin-top:0.8rem; font-size:0.64rem;
                 color:{BRAND['text_light']}; letter-spacing:0.04em;">
         © Sylemax · Academic Management · Effortless &amp; Tailored
     </div>
     """, unsafe_allow_html=True)
 
 
-# Backward compat alias
 login_page = render_login
