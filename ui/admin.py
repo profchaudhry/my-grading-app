@@ -404,14 +404,8 @@ def admin_console() -> None:
         "Admin Panel",
         [
             "📊 Dashboard",
-            "🏛️ Departments",
-            "📅 Semesters",
-            "📚 Courses",
-            "👨‍🏫 Faculty",
-            "🎓 Students",
-            "✅ Pending Approvals",
-            "📋 Enrollment",
-            "📋 Bulk Enrollment",
+            "🎓 Academic Ops",
+            "👥 User Control",
             "📒 Gradebook",
             "🏆 UPro Grade",
             "📈 Reports",
@@ -420,24 +414,109 @@ def admin_console() -> None:
         ]
     )
 
-    if   menu == "📊 Dashboard":        _render_dashboard()
-    elif menu == "🏛️ Departments":      _render_departments()
-    elif menu == "📅 Semesters":        _render_semesters()
-    elif menu == "📚 Courses":          _render_courses()
-    elif menu == "📋 Enrollment":       _render_enrollment_management()
-    elif menu == "📋 Bulk Enrollment":      _render_bulk_upload()
+    if   menu == "📊 Dashboard":         _render_dashboard()
+    elif menu == "🎓 Academic Ops":       _render_academic_ops_hub()
+    elif menu == "👥 User Control":       _render_user_control_hub()
     elif menu == "📒 Gradebook":          render_admin_gradebook()
-    elif menu == "🏆 UPro Grade":
-        _render_admin_upro()
+    elif menu == "🏆 UPro Grade":         _render_admin_upro()
     elif menu == "📈 Reports":            render_admin_reports()
     elif menu == "📣 Communications":     render_admin_communications(st.session_state.user.id)
-    elif menu == "👨‍🏫 Faculty":          _render_users("faculty")
-    elif menu == "🎓 Students":         _render_users("student")
-    elif menu == "✅ Pending Approvals": _render_pending_approvals()
     elif menu == "🔒 Change Password":
         st.title("🔒 Change Password")
         st.divider()
         render_change_password()
+
+
+# ================================================================
+# SUB-PAGE ROUTER
+# ================================================================
+
+def _route_subpage() -> None:
+    sub = st.session_state.get("_subpage")
+    if not sub:
+        return
+    st.session_state["_subpage"] = None
+    dispatch = {
+        "departments":     _render_departments,
+        "semesters":       _render_semesters,
+        "courses":         _render_courses,
+        "faculty":         lambda: _render_users("faculty"),
+        "students":        lambda: _render_users("student"),
+        "pending":         _render_pending_approvals,
+        "enrollment":      _render_enrollment_management,
+        "bulk_enrollment": _render_bulk_upload,
+    }
+    fn = dispatch.get(sub)
+    if fn:
+        fn()
+
+
+# ================================================================
+# HUB PAGES
+# ================================================================
+
+def _hub_tile(col, icon: str, label: str, subpage: str, count: str = "") -> None:
+    col.markdown(f"""
+    <div style="background:#ffffff;border:1.5px solid #e8f0f2;border-radius:14px;
+                padding:1.4rem 1rem 0.6rem;text-align:center;
+                box-shadow:0 2px 10px rgba(48,120,144,0.08);margin-bottom:0.2rem;">
+        <div style="font-size:2.2rem;margin-bottom:0.35rem;">{icon}</div>
+        <div style="font-size:0.92rem;font-weight:700;color:#186078;">{label}</div>
+        {f'<div style="font-size:0.76rem;color:#64748b;margin-top:3px;">{count}</div>' if count else ''}
+    </div>
+    """, unsafe_allow_html=True)
+    if col.button(f"Open {label}", key=f"hub_{subpage}", use_container_width=True):
+        st.session_state["_subpage"] = subpage
+        st.rerun()
+
+
+def _render_academic_ops_hub() -> None:
+    # Check for sub-page first
+    if st.session_state.get("_subpage"):
+        _route_subpage()
+        return
+
+    from ui.styles import page_header
+    page_header("🎓", "Academic Ops", "Manage departments, semesters and courses")
+
+    try:
+        dept_count   = len(DepartmentService.get_all())
+        sem_count    = len(SemesterService.get_all())
+        course_count = len(CourseService.get_all())
+    except Exception:
+        dept_count = sem_count = course_count = 0
+
+    c1, c2, c3 = st.columns(3)
+    _hub_tile(c1, "🏛️", "Departments", "departments", f"{dept_count} department(s)")
+    _hub_tile(c2, "📅", "Semesters",   "semesters",   f"{sem_count} semester(s)")
+    _hub_tile(c3, "📚", "Courses",     "courses",     f"{course_count} course(s)")
+
+
+def _render_user_control_hub() -> None:
+    # Check for sub-page first
+    if st.session_state.get("_subpage"):
+        _route_subpage()
+        return
+
+    from ui.styles import page_header
+    page_header("👥", "User Control", "Manage faculty, students, enrollment and approvals")
+
+    try:
+        all_users  = AdminService.get_all_users()
+        fac_count  = sum(1 for u in all_users if u.get("role") == "faculty")
+        stu_count  = sum(1 for u in all_users if u.get("role") == "student")
+        pend_count = sum(1 for u in all_users if not u.get("approved"))
+    except Exception:
+        fac_count = stu_count = pend_count = 0
+
+    c1, c2, c3 = st.columns(3)
+    _hub_tile(c1, "👨‍🏫", "Faculty",          "faculty",      f"{fac_count} member(s)")
+    _hub_tile(c2, "🎓",  "Students",          "students",     f"{stu_count} student(s)")
+    _hub_tile(c3, "✅",  "Pending Approvals", "pending",      f"{pend_count} pending")
+    st.markdown("<br>", unsafe_allow_html=True)
+    c4, c5, _ = st.columns(3)
+    _hub_tile(c4, "📋", "Enrollment",      "enrollment")
+    _hub_tile(c5, "📤", "Bulk Enrollment", "bulk_enrollment")
 
 
 # ================================================================
