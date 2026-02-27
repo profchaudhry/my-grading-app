@@ -32,8 +32,12 @@ BRAND = {
 }
 
 
-def _logo_b64() -> str:
-    logo_path = Path(__file__).parent.parent / "assets" / "sylemax_logo.png"
+def _logo_b64(white: bool = False) -> str:
+    filename = "sylemax_logo_white.png" if white else "sylemax_logo.png"
+    logo_path = Path(__file__).parent.parent / "assets" / filename
+    # Fallback to main logo if white variant missing
+    if not logo_path.exists():
+        logo_path = Path(__file__).parent.parent / "assets" / "sylemax_logo.png"
     if logo_path.exists():
         return base64.b64encode(logo_path.read_bytes()).decode()
     return ""
@@ -426,12 +430,12 @@ def status_badge(status: str) -> str:
 
 
 def render_sidebar_logo() -> None:
-    logo_b64 = _logo_b64()
+    logo_b64 = _logo_b64(white=True)
     if logo_b64:
         st.sidebar.markdown(f"""
         <div style="text-align:center;padding:1rem 0.5rem 0.5rem;">
             <img src="data:image/png;base64,{logo_b64}"
-                 style="width:140px;filter:brightness(0) invert(1);opacity:0.95;"
+                 style="width:140px;opacity:0.95;"
                  alt="Sylemax"/>
         </div>
         """, unsafe_allow_html=True)
