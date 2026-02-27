@@ -115,19 +115,7 @@ def inject_global_css() -> None:
         border-color: rgba(255,255,255,0.15) !important;
         margin: 10px 0 !important;
     }}
-    /* Force sidebar to always be visible */
-    [data-testid="stSidebar"],
-    [data-testid="stSidebar"][aria-expanded="false"] {{
-        display: block !important;
-        visibility: visible !important;
-        width: 21rem !important;
-        min-width: 21rem !important;
-        transform: none !important;
-        transition: none !important;
-    }}
-    section[data-testid="stSidebar"] > div {{
-        width: 21rem !important;
-    }}
+    /* Sidebar can collapse normally — do not force-show */
     .sidebar-user-badge {{
         background: rgba(255,255,255,0.11);
         border: 1px solid rgba(255,255,255,0.18);
