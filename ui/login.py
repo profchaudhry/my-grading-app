@@ -86,18 +86,17 @@ def render_login() -> None:
     div[data-testid="stVerticalBlock"] > div {{
         gap: 0 !important;
     }}
-    /* PRIMARY BUTTON — override Streamlit's inline red with max specificity */
-    html body div[data-testid="stForm"] div.stButton > button,
-    html body div.stButton > button,
-    html body button[data-testid="baseButton-primary"],
-    html body [data-testid="baseButton-primary"],
-    html body .stButton button[kind="primary"] {{
+    /* BUTTON — target all stButton variants */
+    .stButton > button,
+    .stFormSubmitButton > button,
+    div[data-testid="stFormSubmitButton"] > button,
+    div[data-testid="stBaseButton-secondary"] > button,
+    div.stButton button {{
         background: {BRAND['core']} !important;
         background-color: {BRAND['core']} !important;
         background-image: none !important;
         color: #ffffff !important;
-        border: none !important;
-        border-color: {BRAND['core']} !important;
+        border: 2px solid {BRAND['core']} !important;
         border-radius: 8px !important;
         padding: 0.52rem 1.2rem !important;
         font-family: 'DM Sans', sans-serif !important;
@@ -108,8 +107,9 @@ def render_login() -> None:
         width: 100% !important;
         margin-top: 0.5rem !important;
     }}
-    html body div.stButton > button:hover,
-    html body [data-testid="baseButton-primary"]:hover {{
+    .stButton > button:hover,
+    .stFormSubmitButton > button:hover,
+    div[data-testid="stFormSubmitButton"] > button:hover {{
         background: {BRAND['deep']} !important;
         background-color: {BRAND['deep']} !important;
         background-image: none !important;
@@ -187,7 +187,7 @@ def render_login() -> None:
             password = st.text_input("Password", type="password",
                                       placeholder="Enter your password")
             submitted = st.form_submit_button(
-                "Sign In →", use_container_width=True, type="primary"
+                "Sign In →", use_container_width=True
             )
 
         if submitted:
@@ -225,7 +225,7 @@ def render_login() -> None:
             reg_password = c3.text_input("Password *",         type="password", placeholder="Min 8 chars")
             confirm_pw   = c4.text_input("Confirm Password *", type="password")
             reg_submitted = st.form_submit_button(
-                "Submit Registration", use_container_width=True, type="primary"
+                "Submit Registration", use_container_width=True
             )
 
         if reg_submitted:
@@ -248,6 +248,38 @@ def render_login() -> None:
                     st.success("✅ Registration submitted! An admin will review your account.")
                 else:
                     st.error("Registration failed. This email may already be registered.")
+
+    # ── JS: force button color at runtime (beats Streamlit inline styles) ──
+    st.markdown(f"""
+    <script>
+    (function applyButtonStyles() {{
+        const teal = '{BRAND['core']}';
+        const deep = '{BRAND['deep']}';
+        function style() {{
+            document.querySelectorAll(
+                'button[kind="primary"], .stButton > button, ' +
+                'div[data-testid="stFormSubmitButton"] button, ' +
+                '.stFormSubmitButton button'
+            ).forEach(btn => {{
+                btn.style.setProperty('background-color', teal, 'important');
+                btn.style.setProperty('background', teal, 'important');
+                btn.style.setProperty('color', '#ffffff', 'important');
+                btn.style.setProperty('border-color', teal, 'important');
+                btn.onmouseenter = () => {{
+                    btn.style.setProperty('background-color', deep, 'important');
+                    btn.style.setProperty('background', deep, 'important');
+                }};
+                btn.onmouseleave = () => {{
+                    btn.style.setProperty('background-color', teal, 'important');
+                    btn.style.setProperty('background', teal, 'important');
+                }};
+            }});
+        }}
+        style();
+        new MutationObserver(style).observe(document.body, {{childList:true, subtree:true}});
+    }})();
+    </script>
+    """, unsafe_allow_html=True)
 
     # ── Footer ────────────────────────────────────────────────────
     st.markdown(f"""
