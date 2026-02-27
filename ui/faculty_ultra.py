@@ -13,6 +13,7 @@ from ui.components import render_change_password
 from ui.bulk_enrollment import render_bulk_enrollment
 from ui.faculty_gradebook import render_faculty_gradebook
 from ui.reports import render_faculty_reports
+from ui.communications import render_faculty_communications
 from ui.upro_grade import render_upro_grade
 from ui.styles import section_header
 
@@ -39,6 +40,7 @@ def faculty_ultra_console() -> None:
             "📋 Bulk Enrollment",
             "📒 Gradebook",
             "📈 Reports",
+            "📣 Communications",
             "🏆 UPro Grade",
             "👤 My Profile",
             "🔒 Change Password",
@@ -97,6 +99,9 @@ def faculty_ultra_console() -> None:
 
     elif menu == "📈 Reports":
         render_faculty_reports(user.id)
+
+    elif menu == "📣 Communications":
+        render_faculty_communications(user.id, role)
 
     elif menu == "🏆 UPro Grade":
         st.title("🏆 UPro Grade")
