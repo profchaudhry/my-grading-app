@@ -131,14 +131,14 @@ def render_login() -> None:
             else:
                 with st.spinner("Signing in..."):
                     result = AuthService.login(email.strip(), password)
-                if result.get("success"):
+                if result and result.get("user"):
+                    profile = result.get("profile", {}) or {}
                     st.session_state.user    = result["user"]
-                    st.session_state.session = result["session"]
-                    st.session_state.role    = result["role"]
-                    st.session_state.profile = result.get("profile")
+                    st.session_state.role    = profile.get("role", "student")
+                    st.session_state.profile = profile
                     st.rerun()
                 else:
-                    st.error(result.get("error", "Login failed. Please check your credentials."))
+                    st.error("Login failed. Please check your credentials.")
 
     # ── Register ──────────────────────────────────────────────────
     with tab_register:
@@ -173,12 +173,12 @@ def render_login() -> None:
                         last_name=last_name.strip(),
                         employee_id=employee_id.strip(),
                     )
-                if result.get("success"):
+                if result:
                     st.success(
                         "✅ Registration submitted! An administrator will review and approve your account."
                     )
                 else:
-                    st.error(result.get("error","Registration failed. This email may already be registered."))
+                    st.error("Registration failed. This email may already be registered.")
 
     st.markdown("</div>", unsafe_allow_html=True)
     st.markdown(f"""
