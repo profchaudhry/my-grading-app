@@ -261,13 +261,22 @@ def inject_global_css() -> None:
         box-shadow: 0 2px 10px rgba(48,120,144,0.18) !important;
         transform: translateY(-1px) !important;
     }}
-    [data-testid="baseButton-primary"] {{
-        background: linear-gradient(135deg, var(--core), var(--deep)) !important;
-        color: white !important; border-color: transparent !important;
+    html body [data-testid="baseButton-primary"],
+    html body button[data-testid="baseButton-primary"],
+    html body .stButton > button[kind="primary"] {{
+        background: var(--core) !important;
+        background-color: var(--core) !important;
+        background-image: none !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-color: var(--core) !important;
         box-shadow: 0 3px 12px rgba(48,120,144,0.30) !important;
     }}
-    [data-testid="baseButton-primary"]:hover {{
-        background: linear-gradient(135deg, var(--deep), #0e4a5a) !important;
+    html body [data-testid="baseButton-primary"]:hover {{
+        background: var(--deep) !important;
+        background-color: var(--deep) !important;
+        background-image: none !important;
+        border-color: var(--deep) !important;
         box-shadow: 0 5px 18px rgba(24,96,120,0.38) !important;
         transform: translateY(-2px) !important;
     }}
