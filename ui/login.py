@@ -191,6 +191,11 @@ def render_login() -> None:
                     st.session_state.user    = result["user"]
                     st.session_state.role    = profile.get("role", "student")
                     st.session_state.profile = profile
+                    # Save tokens to URL so session survives browser refresh
+                    if result.get("access_token"):
+                        st.query_params["at"] = result["access_token"]
+                    if result.get("refresh_token"):
+                        st.query_params["rt"] = result["refresh_token"]
                     st.rerun()
                 else:
                     st.error("Incorrect email or password. Please try again.")
