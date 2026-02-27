@@ -430,7 +430,7 @@ def admin_console() -> None:
     elif menu == "🏆 UPro Grade":
         _render_admin_upro()
     elif menu == "📈 Reports":            render_admin_reports()
-    elif menu == "📣 Communications":     render_admin_communications(user.id)
+    elif menu == "📣 Communications":     render_admin_communications(st.session_state.user.id)
     elif menu == "👨‍🏫 Faculty":          _render_users("faculty")
     elif menu == "🎓 Students":         _render_users("student")
     elif menu == "✅ Pending Approvals": _render_pending_approvals()
