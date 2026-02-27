@@ -69,7 +69,11 @@ def base_console(title: str, menu_items: List[str]) -> str:
 
     # ── Logout ──
     if st.sidebar.button("🚪 Logout", use_container_width=True, key="logout_btn"):
+        from services.auth_service import AuthService
+        AuthService.logout()
+        st.query_params.clear()
         st.session_state.clear()
+        st.rerun()
         st.rerun()
 
     return choice
