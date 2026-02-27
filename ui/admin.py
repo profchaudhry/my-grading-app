@@ -407,15 +407,15 @@ def admin_console() -> None:
             "🏛️ Departments",
             "📅 Semesters",
             "📚 Courses",
+            "👨‍🏫 Faculty",
+            "🎓 Students",
+            "✅ Pending Approvals",
             "📋 Enrollment",
             "📋 Bulk Enrollment",
             "📒 Gradebook",
             "🏆 UPro Grade",
             "📈 Reports",
             "📣 Communications",
-            "👨‍🏫 Faculty",
-            "🎓 Students",
-            "✅ Pending Approvals",
             "🔒 Change Password",
         ]
     )
@@ -591,30 +591,79 @@ def _render_semesters() -> None:
         return
 
     for sem in sems:
-        with st.container():
-            c1, c2, c3, c4, c5 = st.columns([3, 2, 2, 2, 1])
-            c1.write(f"**{sem['name']}**")
-            c2.write(f"📅 {sem['start_date']}")
-            c3.write(f"📅 {sem['end_date']}")
+        with st.expander(
+            f"{'✅' if sem['is_active'] else '📅'} **{sem['name']}**  "
+            f"·  {sem['start_date']} → {sem['end_date']}"
+            f"{'  · 🟢 Active' if sem['is_active'] else ''}",
+            expanded=False,
+        ):
+            c1, c2, c3 = st.columns(3)
+            c1.markdown(f"**Name:** {sem['name']}")
+            c2.markdown(f"**Start:** {sem['start_date']}")
+            c3.markdown(f"**End:** {sem['end_date']}")
 
+            # Action buttons row
+            btn_cols = st.columns(4)
+
+            # Activate
             if sem["is_active"]:
-                c4.markdown("✅ **Active**")
+                btn_cols[0].success("✅ Active")
             else:
-                if c4.button("▶ Activate", key=f"act_sem_{sem['id']}",
-                              use_container_width=True, type="primary"):
-                    with st.spinner("Activating..."):
-                        ok = SemesterService.set_active(sem["id"])
-                    if ok:
-                        st.success(f"'{sem['name']}' is now the active semester.")
+                if btn_cols[0].button("▶️ Activate", key=f"act_sem_{sem['id']}",
+                                       use_container_width=True):
+                    if SemesterService.set_active(sem["id"]):
+                        st.success(f"'{sem['name']}' activated.")
                         st.rerun()
                     else:
-                        st.error("Activation failed. Check Supabase logs.")
+                        st.error("Activation failed.")
 
+            # Edit
+            if btn_cols[1].button("✏️ Edit", key=f"edit_sem_btn_{sem['id']}",
+                                   use_container_width=True):
+                st.session_state[f"_edit_sem_{sem['id']}"] = True
+
+            # Delete (only inactive)
             if not sem["is_active"]:
-                if c5.button("🗑️", key=f"del_sem_{sem['id']}"):
+                if btn_cols[2].button("🗑️ Delete", key=f"del_sem_{sem['id']}",
+                                       use_container_width=True):
                     SemesterService.delete(sem["id"])
                     st.rerun()
-        st.divider()
+            else:
+                btn_cols[2].caption("Cannot delete active")
+
+            # Inline edit form
+            if st.session_state.get(f"_edit_sem_{sem['id']}"):
+                st.divider()
+                with st.form(f"edit_sem_form_{sem['id']}"):
+                    st.markdown("**✏️ Edit Semester**")
+                    new_name  = st.text_input("Semester Name", value=sem["name"])
+                    ec1, ec2  = st.columns(2)
+                    from datetime import date
+                    new_start = ec1.date_input("Start Date",
+                                               value=date.fromisoformat(sem["start_date"]),
+                                               key=f"sem_start_{sem['id']}")
+                    new_end   = ec2.date_input("End Date",
+                                               value=date.fromisoformat(sem["end_date"]),
+                                               key=f"sem_end_{sem['id']}")
+                    fc1, fc2  = st.columns(2)
+                    save   = fc1.form_submit_button("💾 Save",   use_container_width=True)
+                    cancel = fc2.form_submit_button("✖ Cancel", use_container_width=True)
+                if save:
+                    if not new_name:
+                        st.error("Name is required.")
+                    elif new_end <= new_start:
+                        st.error("End must be after start.")
+                    else:
+                        SemesterService.update(sem["id"], {
+                            "name":       new_name,
+                            "start_date": str(new_start),
+                            "end_date":   str(new_end),
+                        })
+                        st.session_state.pop(f"_edit_sem_{sem['id']}", None)
+                        st.rerun()
+                if cancel:
+                    st.session_state.pop(f"_edit_sem_{sem['id']}", None)
+                    st.rerun()
 
 
 def _render_courses() -> None:
@@ -682,49 +731,214 @@ def _render_courses() -> None:
         return
 
     for course in courses:
-        dept_name = (course.get("departments") or {}).get("name", "—")
-        enrolled  = CourseService.get_enrollment_count(course["id"])
+        dept_name  = (course.get("departments") or {}).get("name", "—")
+        enrolled   = CourseService.get_enrollment_count(course["id"])
+        is_active  = course.get("is_active", True)
+        status_tag = "🟢" if is_active else "🔴"
+
         with st.expander(
-            f"📘 **{course['code']}** — {course['name']}  "
+            f"{status_tag} 📘 **{course['code']}** — {course['name']}  "
             f"| ID: `{course.get('course_id','—')}` "
             f"| {dept_name} | {course['credits']} cr "
             f"| {enrolled}/{course['max_students']} enrolled"
         ):
-            c1, c2, c3 = st.columns(3)
-            c1.markdown(f"**Course ID:** `{course.get('course_id','—')}`")
-            c2.markdown(f"**Description:** {course.get('description') or '—'}")
-            c3.markdown(f"**Max Students:** {course['max_students']}")
+            # ── Sub-tabs inside each course ──────────────────────
+            ctab_info, ctab_faculty, ctab_enroll, ctab_bulk = st.tabs([
+                "📋 Info & Actions",
+                "👨‍🏫 Faculty",
+                "📋 Enrollment",
+                "📤 Bulk Enrollment",
+            ])
 
-            st.markdown("**👨‍🏫 Assigned Faculty:**")
-            assigned = CourseService.get_assigned_faculty(course["id"])
-            if assigned:
-                for a in assigned:
-                    p = a.get("profiles", {}) or {}
-                    ca, cb = st.columns([5, 1])
-                    ca.write(f"👨‍🏫 {_full_name(p) if p else '—'}")
-                    if cb.button("Remove", key=f"unassign_{course['id']}_{a['faculty_id']}"):
-                        CourseService.unassign_faculty(course["id"], a["faculty_id"])
-                        st.rerun()
-            else:
-                st.caption("No faculty assigned yet.")
+            with ctab_info:
+                ci1, ci2, ci3 = st.columns(3)
+                ci1.markdown(f"**Course ID:** `{course.get('course_id','—')}`")
+                ci2.markdown(f"**Credits:** {course['credits']}")
+                ci3.markdown(f"**Max Students:** {course['max_students']}")
+                if course.get("description"):
+                    st.caption(course["description"])
 
-            if faculty_map:
-                with st.form(f"assign_form_{course['id']}"):
-                    sel_f = st.selectbox("Assign Faculty", list(faculty_map.keys()),
-                                          key=f"sel_fac_{course['id']}")
-                    if st.form_submit_button("Assign Faculty", use_container_width=True):
-                        if CourseService.assign_faculty(course["id"], faculty_map[sel_f]):
-                            st.success("Faculty assigned.")
-                            st.rerun()
-            else:
-                st.caption("No approved faculty available.")
+                st.markdown("---")
+                ba, bb, bc = st.columns(3)
 
-            st.divider()
-            if st.button("🗑️ Delete Course", key=f"del_course_{course['id']}",
-                          type="secondary"):
-                if CourseService.delete(course["id"]):
-                    st.success("Deleted.")
+                # Deactivate / Activate
+                deact_lbl = "🔴 Deactivate" if is_active else "🟢 Activate"
+                if ba.button(deact_lbl, key=f"deact_course_{course['id']}",
+                              use_container_width=True):
+                    CourseService.update(course["id"], {"is_active": not is_active})
                     st.rerun()
+
+                # Edit
+                if bb.button("✏️ Edit", key=f"edit_course_btn_{course['id']}",
+                              use_container_width=True):
+                    st.session_state[f"_edit_course_{course['id']}"] = True
+
+                # Delete
+                if bc.button("🗑️ Delete", key=f"del_course_{course['id']}",
+                              use_container_width=True):
+                    if CourseService.delete(course["id"]):
+                        st.success("Deleted.")
+                        st.rerun()
+
+                # Inline edit form
+                if st.session_state.get(f"_edit_course_{course['id']}"):
+                    st.divider()
+                    with st.form(f"edit_course_form_{course['id']}"):
+                        st.markdown("**✏️ Edit Course**")
+                        en1, en2 = st.columns(2)
+                        new_name = en1.text_input("Course Name", value=course["name"])
+                        new_code = en2.text_input("Course Code", value=course["code"])
+                        en3, en4 = st.columns(2)
+                        new_cred = en3.number_input("Credits", min_value=1, max_value=6,
+                                                     value=int(course["credits"]),
+                                                     key=f"cr_{course['id']}")
+                        new_max  = en4.number_input("Max Students", min_value=1, max_value=500,
+                                                     value=int(course["max_students"]),
+                                                     key=f"mx_{course['id']}")
+                        new_dept_name = st.selectbox("Department", list(dept_map.keys()),
+                                                      index=list(dept_map.keys()).index(
+                                                          (course.get("departments") or {}).get("name", list(dept_map.keys())[0])
+                                                      ) if (course.get("departments") or {}).get("name") in dept_map else 0,
+                                                      key=f"dp_{course['id']}")
+                        new_desc = st.text_area("Description", value=course.get("description",""),
+                                                 height=60, key=f"ds_{course['id']}")
+                        fc1, fc2 = st.columns(2)
+                        save   = fc1.form_submit_button("💾 Save",   use_container_width=True)
+                        cancel = fc2.form_submit_button("✖ Cancel", use_container_width=True)
+                    if save:
+                        CourseService.update(course["id"], {
+                            "name":          new_name,
+                            "code":          new_code.upper(),
+                            "credits":       new_cred,
+                            "max_students":  new_max,
+                            "department_id": dept_map[new_dept_name],
+                            "description":   new_desc,
+                        })
+                        st.session_state.pop(f"_edit_course_{course['id']}", None)
+                        st.rerun()
+                    if cancel:
+                        st.session_state.pop(f"_edit_course_{course['id']}", None)
+                        st.rerun()
+
+            with ctab_faculty:
+                st.markdown("**👨‍🏫 Assigned Faculty**")
+                assigned = CourseService.get_assigned_faculty(course["id"])
+                if assigned:
+                    for a in assigned:
+                        p = a.get("profiles", {}) or {}
+                        fa, fb = st.columns([5, 1])
+                        fa.write(f"👨‍🏫 {_full_name(p) if p else '—'}")
+                        if fb.button("Remove", key=f"unassign_{course['id']}_{a['faculty_id']}"):
+                            CourseService.unassign_faculty(course["id"], a["faculty_id"])
+                            st.rerun()
+                else:
+                    st.caption("No faculty assigned yet.")
+
+                if faculty_map:
+                    with st.form(f"assign_form_{course['id']}"):
+                        sel_f = st.selectbox("Assign Faculty", list(faculty_map.keys()),
+                                              key=f"sel_fac_{course['id']}")
+                        if st.form_submit_button("Assign Faculty", use_container_width=True):
+                            if CourseService.assign_faculty(course["id"], faculty_map[sel_f]):
+                                st.success("Faculty assigned.")
+                                st.rerun()
+                else:
+                    st.caption("No approved faculty available.")
+
+            with ctab_enroll:
+                _render_course_inline_enrollment(course["id"], course["name"], sel_sem_id)
+
+            with ctab_bulk:
+                _render_course_inline_bulk(course["id"], course["name"])
+
+
+def _render_course_inline_enrollment(course_id: str, course_name: str,
+                                      sem_id: str) -> None:
+    """Mini enrollment panel embedded inside a course expander tab."""
+    tab_list, tab_add = st.tabs(["📋 Enrolled Students", "➕ Add Student"])
+
+    with tab_list:
+        enrollments = EnrollmentService.get_course_enrollments(course_id)
+        if not enrollments:
+            st.info("No students enrolled yet.")
+        else:
+            section_header("Enrolled Students", f"{len(enrollments)} student(s)")
+            for e in enrollments:
+                p  = e.get("profiles", {}) or {}
+                ea, eb = st.columns([6, 1])
+                name = p.get("full_name") or f"{p.get('first_name','')} {p.get('last_name','')}".strip() or "—"
+                ea.write(f"🎓 {name} ({p.get('email','—')})")
+                if eb.button("Drop", key=f"drop_{course_id}_{p.get('id','')}"):
+                    if EnrollmentService.drop_student(p["id"], course_id, sem_id):
+                        st.success("Student dropped.")
+                        st.rerun()
+
+    with tab_add:
+        all_students = [u for u in AdminService.get_all_users()
+                        if u.get("role") == "student"]
+        already_ids  = {e.get("student_id") or (e.get("profiles") or {}).get("id")
+                        for e in EnrollmentService.get_course_enrollments(course_id)}
+        available    = [u for u in all_students if u["id"] not in already_ids]
+        if not available:
+            st.info("All students are already enrolled.")
+        else:
+            student_map = {
+                f"{u.get('full_name') or (u.get('first_name','') + ' ' + u.get('last_name','')).strip()} ({u['email']})": u["id"]
+                for u in available
+            }
+            sel_label = st.selectbox("Select Student", list(student_map.keys()),
+                                      key=f"inline_enroll_sel_{course_id}")
+            if st.button("➕ Enroll Student", key=f"inline_enroll_btn_{course_id}",
+                          use_container_width=True):
+                if EnrollmentService.enroll_student(
+                    student_map[sel_label], course_id, sem_id
+                ):
+                    st.success("Student enrolled.")
+                    st.rerun()
+                else:
+                    st.error("Enrollment failed.")
+
+
+def _render_course_inline_bulk(course_id: str, course_name: str) -> None:
+    """Mini bulk enrollment panel embedded inside a course expander tab."""
+    st.markdown(f"**Bulk enroll students into {course_name}**")
+    st.caption("Upload a CSV with columns: `student_id` or `email`")
+
+    uploaded = st.file_uploader("Upload CSV", type=["csv"],
+                                  key=f"bulk_upload_{course_id}")
+    if uploaded:
+        import io, csv
+        try:
+            text    = uploaded.read().decode("utf-8")
+            reader  = csv.DictReader(io.StringIO(text))
+            rows    = list(reader)
+            headers = [h.lower().strip() for h in (reader.fieldnames or [])]
+            st.info(f"Found {len(rows)} rows. Headers: {headers}")
+
+            if st.button("⬆️ Process Bulk Enrollment",
+                          key=f"bulk_process_{course_id}",
+                          use_container_width=True):
+                from services.supabase_client import supabase as _sb
+                active_sem = SemesterService.get_active()
+                sem_id     = active_sem["id"] if active_sem else None
+                success = fail = 0
+                for row in rows:
+                    email = row.get("email","").strip()
+                    if not email or not sem_id:
+                        fail += 1
+                        continue
+                    r = _sb.table("profiles").select("id").eq("email", email).execute()
+                    if not r.data:
+                        fail += 1
+                        continue
+                    sid = r.data[0]["id"]
+                    if EnrollmentService.enroll_student(sid, course_id, sem_id):
+                        success += 1
+                    else:
+                        fail += 1
+                st.success(f"✅ {success} enrolled, ❌ {fail} failed.")
+        except Exception as e:
+            st.error(f"Error reading CSV: {e}")
 
 
 def _render_users(role_type: str) -> None:
