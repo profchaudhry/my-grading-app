@@ -427,7 +427,7 @@ def admin_console() -> None:
     elif menu == "📒 Gradebook":          render_admin_gradebook()
     elif menu == "🏆 UPro Grade":
         _render_admin_upro()
-        elif menu == "📈 Reports":            render_admin_reports()
+    elif menu == "📈 Reports":            render_admin_reports()
     elif menu == "👨‍🏫 Faculty":          _render_users("faculty")
     elif menu == "🎓 Students":         _render_users("student")
     elif menu == "✅ Pending Approvals": _render_pending_approvals()
