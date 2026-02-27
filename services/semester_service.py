@@ -121,6 +121,16 @@ class SemesterService(BaseService):
             return False
 
     @staticmethod
+    @staticmethod
+    def update(semester_id: str, data: dict) -> bool:
+        try:
+            r = supabase.table("semesters").update(data).eq("id", semester_id).execute()
+            SemesterService.clear_cache()
+            return bool(r.data)
+        except Exception:
+            return False
+
+    @staticmethod
     def delete(semester_id: str) -> bool:
         try:
             supabase.table("semesters").delete().eq("id", semester_id).execute()
