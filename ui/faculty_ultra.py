@@ -101,7 +101,7 @@ def faculty_ultra_console() -> None:
         render_faculty_reports(user.id)
 
     elif menu == "📣 Communications":
-        render_faculty_communications(user.id, role)
+        render_faculty_communications(user.id, "faculty_ultra")
 
     elif menu == "🏆 UPro Grade":
         st.title("🏆 UPro Grade")
