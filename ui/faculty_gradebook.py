@@ -1,5 +1,6 @@
 """
 Faculty Gradebook page — plugged into faculty_console.
+Tab order: Quizzes → Assignments → Midterm → Final → Summary → Scheme
 """
 import streamlit as st
 from services.course_service import CourseService
@@ -32,20 +33,20 @@ def render_faculty_gradebook(faculty_user_id: str) -> None:
                                  index=sem_names.index(default), key="gb_sem")
     sel_sem_id   = sem_map[sel_sem_name]
 
-    assignments  = CourseService.get_faculty_courses(faculty_user_id, sel_sem_id)
+    assignments = CourseService.get_faculty_courses(faculty_user_id, sel_sem_id)
     if not assignments:
         st.info("No courses assigned to you for this semester.")
         return
 
     course_map = {
-        f"{a['courses']['code']} — {a['courses']['name']} [{a['courses'].get('course_id','—')}]": a["courses"]
+        f"{a['courses']['code']} — {a['courses']['name']} [{a['courses'].get('course_id','—')}]":
+        a["courses"]
         for a in assignments if a.get("courses")
     }
-    sel_label  = st.selectbox("Course", list(course_map.keys()), key="gb_course")
-    course     = course_map[sel_label]
+    sel_label   = st.selectbox("Course", list(course_map.keys()), key="gb_course")
+    course      = course_map[sel_label]
     course_uuid = course["id"]
 
-    # Get enrolled students
     enrollments = EnrollmentService.get_course_enrollments(course_uuid)
     if not enrollments:
         st.warning("No students enrolled in this course.")
@@ -54,33 +55,23 @@ def render_faculty_gradebook(faculty_user_id: str) -> None:
     st.caption(f"👥 {len(enrollments)} enrolled student(s)")
     st.divider()
 
-    tab_scheme, tab_quiz, tab_asgn, tab_mid, tab_fin, tab_summary = st.tabs([
-        "⚙️ Scheme",
-        "📝 Quizzes",
-        "📄 Assignments",
-        "📘 Midterm",
-        "📗 Final",
-        "📊 Summary & Submit",
+    # Tab order: Quizzes → Assignments → Midterm → Final → Summary → Scheme
+    t_quiz, t_asgn, t_mid, t_fin, t_summary, t_scheme = st.tabs([
+        "📝 Quizzes", "📄 Assignments",
+        "📘 Midterm", "📗 Final",
+        "📊 Summary & Submit", "⚙️ Scheme",
     ])
 
-    with tab_scheme:
-        render_scheme_editor(course_uuid, is_admin=False)
-
-    with tab_quiz:
+    with t_quiz:
         render_quiz_manager(course_uuid, enrollments)
-
-    with tab_asgn:
+    with t_asgn:
         render_assignment_manager(course_uuid, enrollments)
-
-    with tab_mid:
+    with t_mid:
         render_exam_manager(course_uuid, enrollments, exam_type="midterm")
-
-    with tab_fin:
+    with t_fin:
         render_exam_manager(course_uuid, enrollments, exam_type="final")
-
-    with tab_summary:
-        render_gradebook_summary(
-            course_uuid, enrollments,
-            can_submit=True,
-            can_approve=False,
-        )
+    with t_summary:
+        render_gradebook_summary(course_uuid, enrollments,
+                                  can_submit=True, can_approve=False)
+    with t_scheme:
+        render_scheme_editor(course_uuid, is_admin=False)
