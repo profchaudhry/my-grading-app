@@ -684,15 +684,20 @@ class GradingService(BaseService):
                     "status":            "draft",
                 })
 
-            # Batch upsert
-            supabase.table("compiled_grades").upsert(rows_to_upsert).execute()
+            # Batch upsert — on_conflict targets the unique key so existing rows are updated
+            supabase.table("compiled_grades").upsert(
+                rows_to_upsert,
+                on_conflict="course_id,student_id"
+            ).execute()
 
             # Mark quiz/assignment configs as compiled
             supabase.table("quiz_config").upsert(
-                {"course_id": course_uuid, "compiled": True}
+                {"course_id": course_uuid, "compiled": True},
+                on_conflict="course_id"
             ).execute()
             supabase.table("assignment_config").upsert(
-                {"course_id": course_uuid, "compiled": True}
+                {"course_id": course_uuid, "compiled": True},
+                on_conflict="course_id"
             ).execute()
 
             GradingService.clear_cache()
