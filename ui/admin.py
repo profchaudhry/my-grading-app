@@ -1,4 +1,4 @@
-# _ADMIN_UI_VERSION = 8  # cache-bust marker
+# _ADMIN_UI_VERSION = 9  # cache-bust marker
 import streamlit as st
 import pandas as pd
 from core.layout import base_console
@@ -39,114 +39,126 @@ def _full_name(profile: dict) -> str:
 
 
 def _faculty_edit_form(user: dict, form_key: str) -> dict | None:
-    """
-    Admin can edit ALL faculty fields including first/last name and employee ID.
-    """
-    with st.form(form_key):
-        section_header("Identity (Admin Only)")
-        c1, c2 = st.columns(2)
-        first         = c1.text_input("First Name",  value=user.get("first_name","") or "")
-        last          = c2.text_input("Last Name",   value=user.get("last_name", "") or "")
-        employee_id   = c1.text_input("Employee ID", value=user.get("employee_id","") or "")
-        qualification = c2.text_input("Qualification (e.g. PhD, MSc)",
-                                       value=user.get("qualification","") or "")
-        st.divider()
-        section_header("Contact Information")
-        c3, c4 = st.columns(2)
-        phone   = c3.text_input("Phone Number",    value=user.get("phone","") or "")
-        office  = c4.text_input("Office Location", value=user.get("office_location","") or "")
-        address = st.text_input("Address",          value=user.get("address","") or "")
-        st.divider()
-        section_header("Academic Information")
-        specialization = st.text_input("Specialization / Subject Area",
-                                        value=user.get("specialization","") or "")
-        publications   = st.text_area("Publications",
-                                       value=user.get("publications","") or "", height=80)
-        st.divider()
-        section_header("Account")
-        c5, c6   = st.columns(2)
-        role     = c5.selectbox("Role", VALID_ROLES,
-                                 index=VALID_ROLES.index(user.get("role", "faculty"))
-                                 if user.get("role") in VALID_ROLES
-                                 else VALID_ROLES.index("faculty"))
-        approved = c6.checkbox("Approved", value=bool(user.get("approved", False)))
-        submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
-
-    if submitted:
-        return {
-            "first_name": first.strip(), "last_name": last.strip(),
-            "employee_id": employee_id.strip(), "qualification": qualification.strip(),
-            "phone": phone.strip(), "office_location": office.strip(),
-            "address": address.strip(), "specialization": specialization.strip(),
-            "publications": publications.strip(), "role": role, "approved": approved,
-        }
-    return None
-
-
-def _student_edit_form(user: dict, form_key: str) -> dict | None:
-    """Admin can edit ALL student fields."""
-    import datetime as _dt
-
-    existing_full = (user.get("full_name", "") or "").strip()
-    if not existing_full:
-        fn = (user.get("first_name", "") or "").strip()
-        ln = (user.get("last_name",  "") or "").strip()
-        existing_full = f"{fn} {ln}".strip()
-
-    # Parse DOB safely outside the form
-    dob_default = None
-    raw_dob = user.get("date_of_birth")
-    if raw_dob:
-        try:
-            dob_default = _dt.date.fromisoformat(str(raw_dob))
-        except Exception:
-            dob_default = None
-
-    # Pre-read all values so nothing is conditionally unbound
-    v_full  = existing_full
-    v_enrol = user.get("enrollment_number", "") or ""
-    v_prog  = user.get("program", "")           or ""
-    try:
-        v_year = int(user.get("year_of_study") or 1)
-    except (ValueError, TypeError):
-        v_year = 1
-    v_phone = user.get("phone", "")             or ""
-    v_addr  = user.get("address", "")           or ""
-    v_role  = user.get("role", "student")
-    role_idx = VALID_ROLES.index(v_role) if v_role in VALID_ROLES else VALID_ROLES.index("student")
-
-    submitted     = False
-    full_name_val = v_full
-    enrollment_no = v_enrol
-    program       = v_prog
-    year_of_study = v_year
-    dob           = dob_default
-    phone         = v_phone
-    address       = v_addr
-    role          = v_role
+    """Admin can edit all faculty fields. All variables pre-declared to prevent UnboundLocalError."""
+    # Pre-declare ALL variables with safe defaults BEFORE the form
+    f_first         = (user.get("first_name",        "") or "").strip()
+    f_last          = (user.get("last_name",          "") or "").strip()
+    f_employee_id   = (user.get("employee_id",        "") or "").strip()
+    f_qualification = (user.get("qualification",      "") or "").strip()
+    f_phone         = (user.get("phone",              "") or "").strip()
+    f_office        = (user.get("office_location",    "") or "").strip()
+    f_address       = (user.get("address",            "") or "").strip()
+    f_specialization= (user.get("specialization",     "") or "").strip()
+    f_publications  = (user.get("publications",       "") or "").strip()
+    f_role_default  = user.get("role", "faculty")
+    f_role_idx      = VALID_ROLES.index(f_role_default) if f_role_default in VALID_ROLES else VALID_ROLES.index("faculty")
+    f_approved      = bool(user.get("approved", False))
+    f_submitted     = False
+    # Widget return values (overwritten by form widgets below)
+    first = f_first; last = f_last; employee_id = f_employee_id
+    qualification = f_qualification; phone = f_phone; office = f_office
+    address = f_address; specialization = f_specialization
+    publications = f_publications; role = f_role_default; approved = f_approved
 
     with st.form(form_key):
         section_header("Identity")
-        r1c1, r1c2 = st.columns(2)
-        full_name_val = r1c1.text_input("Full Name",          value=v_full)
-        enrollment_no = r1c2.text_input("Enrollment Number",  value=v_enrol)
-        r2c1, r2c2 = st.columns(2)
-        program       = r2c1.text_input("Program / Degree",   value=v_prog)
-        year_of_study = r2c2.number_input("Year of Study",    min_value=1, max_value=10, value=v_year, step=1)
+        fa1, fa2 = st.columns(2)
+        first         = fa1.text_input("First Name",   value=f_first)
+        last          = fa2.text_input("Last Name",    value=f_last)
+        fb1, fb2 = st.columns(2)
+        employee_id   = fb1.text_input("Employee ID",  value=f_employee_id)
+        qualification = fb2.text_input("Qualification (e.g. PhD, MSc)", value=f_qualification)
         st.divider()
         section_header("Contact")
-        r3c1, r3c2 = st.columns(2)
-        phone   = r3c1.text_input("Phone",   value=v_phone)
-        address = r3c2.text_input("Address", value=v_addr)
-        import datetime as _dt2
-        _dob_val = dob_default if dob_default is not None else _dt2.date.today()
-        dob      = st.date_input("Date of Birth (optional)", value=_dob_val)
+        fc1, fc2 = st.columns(2)
+        phone   = fc1.text_input("Phone Number",    value=f_phone)
+        office  = fc2.text_input("Office Location", value=f_office)
+        address = st.text_input("Address",           value=f_address)
+        st.divider()
+        section_header("Academic")
+        specialization = st.text_input("Specialization / Subject Area", value=f_specialization)
+        publications   = st.text_area("Publications", value=f_publications, height=80)
         st.divider()
         section_header("Account")
-        role      = st.selectbox("Role", VALID_ROLES, index=role_idx)
-        submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
+        fd1, fd2 = st.columns(2)
+        role      = fd1.selectbox("Role", VALID_ROLES, index=f_role_idx)
+        approved  = fd2.checkbox("Approved", value=f_approved)
+        f_submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
 
-    if submitted:
+    if f_submitted:
+        return {
+            "first_name":      first.strip(),         "last_name":       last.strip(),
+            "employee_id":     employee_id.strip(),    "qualification":   qualification.strip(),
+            "phone":           phone.strip(),          "office_location": office.strip(),
+            "address":         address.strip(),        "specialization":  specialization.strip(),
+            "publications":    publications.strip(),   "role":            role,
+            "approved":        approved,
+        }
+    return None
+def _student_edit_form(user: dict, form_key: str) -> dict | None:
+    """Admin can edit all student fields. All variables pre-declared to prevent UnboundLocalError."""
+    import datetime as _dt
+
+    # Build display name
+    s_full = (user.get("full_name", "") or "").strip()
+    if not s_full:
+        s_full = f"{user.get('first_name','') or ''} {user.get('last_name','') or ''}".strip()
+
+    # Parse DOB safely — never pass None to date_input
+    s_dob: _dt.date = _dt.date.today()
+    raw_dob = user.get("date_of_birth")
+    if raw_dob:
+        try:
+            s_dob = _dt.date.fromisoformat(str(raw_dob))
+        except Exception:
+            pass
+
+    # Safe int conversion for year
+    try:
+        s_year = int(user.get("year_of_study") or 1)
+        s_year = max(1, min(10, s_year))
+    except (ValueError, TypeError):
+        s_year = 1
+
+    s_enrol = (user.get("enrollment_number", "") or "").strip()
+    s_prog  = (user.get("program",            "") or "").strip()
+    s_phone = (user.get("phone",              "") or "").strip()
+    s_addr  = (user.get("address",            "") or "").strip()
+    s_role  = user.get("role", "student")
+    s_ridx  = VALID_ROLES.index(s_role) if s_role in VALID_ROLES else VALID_ROLES.index("student")
+
+    # Pre-declare all widget outputs so they are always bound
+    s_submitted   = False
+    full_name_val = s_full
+    enrollment_no = s_enrol
+    program       = s_prog
+    year_of_study = s_year
+    dob           = s_dob
+    phone         = s_phone
+    address       = s_addr
+    role          = s_role
+
+    with st.form(form_key):
+        section_header("Identity")
+        sa1, sa2 = st.columns(2)
+        full_name_val = sa1.text_input("Full Name",         value=s_full)
+        enrollment_no = sa2.text_input("Enrollment Number", value=s_enrol)
+        sb1, sb2 = st.columns(2)
+        program       = sb1.text_input("Program / Degree",  value=s_prog)
+        year_of_study = sb2.number_input("Year of Study",   min_value=1, max_value=10,
+                                          value=s_year, step=1)
+        st.divider()
+        section_header("Contact")
+        sc1, sc2 = st.columns(2)
+        phone   = sc1.text_input("Phone",   value=s_phone)
+        address = sc2.text_input("Address", value=s_addr)
+        dob     = st.date_input("Date of Birth", value=s_dob)
+        st.divider()
+        section_header("Account")
+        role        = st.selectbox("Role", VALID_ROLES, index=s_ridx)
+        s_submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
+
+    if s_submitted:
         fn    = (full_name_val or "").strip()
         parts = fn.split(" ", 1)
         return {
@@ -155,15 +167,13 @@ def _student_edit_form(user: dict, form_key: str) -> dict | None:
             "last_name":         parts[1] if len(parts) > 1 else "",
             "enrollment_number": (enrollment_no or "").strip(),
             "program":           (program       or "").strip(),
-            "year_of_study":     year_of_study,
-            "date_of_birth":     str(dob) if dob else None,
+            "year_of_study":     int(year_of_study),
+            "date_of_birth":     str(dob),
             "phone":             (phone   or "").strip(),
             "address":           (address or "").strip(),
             "role":              role,
         }
     return None
-
-
 def _reset_password_form(user: dict) -> None:
     uid   = user["id"]
     email = user.get("email","")
