@@ -30,18 +30,21 @@ def base_console(title: str, menu_items: List[str]) -> str:
         padding: 10px 6px 2px 6px; margin: 0; display: block;
     }
     section[data-testid="stSidebar"] .logout-wrap button {
-        background-color: rgba(255,255,255,0.13) !important;
+        background-color: rgba(255,255,255,0.06) !important;
         color: #ffffff !important;
-        border: 1.5px solid rgba(255,255,255,0.30) !important;
+        border: 1px solid rgba(255,255,255,0.10) !important;
         border-radius: 10px !important;
         font-weight: 500 !important;
-        font-size: 0.85rem !important;
+        font-size: 0.88rem !important;
         box-shadow: none !important;
         background-image: none !important;
+        padding: 10px 14px !important;
+        text-align: left !important;
     }
     section[data-testid="stSidebar"] .logout-wrap button:hover {
         background-color: rgba(200,40,40,0.32) !important;
         border-color: rgba(255,80,80,0.50) !important;
+        color: #ffffff !important;
     }
     </style>
     """, unsafe_allow_html=True)
