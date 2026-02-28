@@ -111,14 +111,14 @@ def inject_global_css() -> None:
     /* ── SELECTED nav item — teal highlight ── */
     [data-testid="stSidebar"] .stRadio [data-baseweb="radio"][aria-checked="true"] label,
     [data-testid="stSidebar"] .stRadio label:has(input:checked) {{
-        background: rgba(255,255,255,0.22) !important;
-        border-color: rgba(255,255,255,0.55) !important;
-        color: #ffffff !important;
+        background: rgba(255,255,255,0.95) !important;
+        border-color: rgba(255,255,255,0.95) !important;
+        color: {BRAND['deep']} !important;
         font-weight: 700 !important;
         transform: translateX(4px) !important;
-        box-shadow: 0 2px 12px rgba(0,0,0,0.18) !important;
-        border-left: 3px solid #ffffff !important;
-        padding-left: 11px !important;
+        box-shadow: 0 3px 14px rgba(0,0,0,0.22) !important;
+        border-left: 4px solid {BRAND['accent']} !important;
+        padding-left: 10px !important;
     }}
     [data-testid="stSidebar"] .stRadio [data-baseweb="radio"] > div:first-child {{
         display: none !important;
