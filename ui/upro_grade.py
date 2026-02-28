@@ -1,3 +1,4 @@
+# _UPRO_VERSION = 2
 """
 UPro Grade UI — used by faculty_ultra and admin consoles.
 Tabs: Syndicates | UPro Scores | AOL Gradebook | AOL Config
@@ -264,37 +265,46 @@ def _render_upro_scores(course_uuid, enrolled_profiles, max_quiz, max_asgn, max_
         else:
             # Group apply — store applied value in session_state keyed to syndicate
             _asgn_grp_key = f"upro_asgn_grp_{sel_syn['id']}"
+            # Seed group input default on first render only
+            if "upro_asgn_group" not in st.session_state:
+                st.session_state["upro_asgn_group"] = 0.0
             group_val = st.number_input(
                 f"Group Assignment Score (out of {max_asgn})",
                 min_value=0.0, max_value=max_asgn,
-                value=0.0, step=0.5, key="upro_asgn_group"
+                step=0.5, key="upro_asgn_group"
             )
             if st.button("Apply to all members ↓", key="upro_asgn_apply"):
-                st.session_state[_asgn_grp_key] = group_val
+                # Write directly into each member widget's session_state key
+                # so Streamlit uses the new value on the next render
+                for _m in members:
+                    _mp = _m.get("profiles", {}) or {}
+                    _sid = _mp.get("id")
+                    if _sid:
+                        st.session_state[f"upro_asgn_{_sid}"] = min(float(group_val), max_asgn)
                 st.rerun()
 
             st.divider()
-            # Individual inputs — no st.form, so Apply rerun takes effect immediately
+            # Individual inputs — keyed per student; session_state values set above on Apply
             entries = {}
             for m in members:
                 mp  = m.get("profiles", {}) or {}
                 sid = mp["id"]
-                existing    = UProService.get_student_upro_score(course_uuid, sid)
-                # Use group value if Apply was clicked, else existing DB value, else 0
-                if _asgn_grp_key in st.session_state:
-                    default_val = float(st.session_state[_asgn_grp_key])
-                elif existing and existing.get("assignment_score") is not None:
-                    default_val = float(existing["assignment_score"])
-                else:
-                    default_val = 0.0
-                default_val = min(default_val, max_asgn)
+                existing = UProService.get_student_upro_score(course_uuid, sid)
+                widget_key = f"upro_asgn_{sid}"
+                # Only set default if the key isn't already in session_state
+                # (preserves Apply value OR previously-typed value)
+                if widget_key not in st.session_state:
+                    if existing and existing.get("assignment_score") is not None:
+                        st.session_state[widget_key] = float(existing["assignment_score"])
+                    else:
+                        st.session_state[widget_key] = 0.0
                 is_lead = sid == sel_syn.get("lead_student_id")
                 entries[sid] = st.number_input(
                     f"{'👑 ' if is_lead else ''}{_pname(mp)} "
                     f"`{mp.get('enrollment_number','')}`",
                     min_value=0.0, max_value=max_asgn,
-                    value=default_val, step=0.5,
-                    key=f"upro_asgn_{sid}"
+                    step=0.5,
+                    key=widget_key
                 )
             if st.button("💾 Save Assignment Scores", key="upro_asgn_save",
                          use_container_width=True, type="primary"):
