@@ -84,50 +84,76 @@ def _faculty_edit_form(user: dict, form_key: str) -> dict | None:
 
 def _student_edit_form(user: dict, form_key: str) -> dict | None:
     """Admin can edit ALL student fields."""
-    # Derive full_name display value
-    existing_full = (user.get("full_name","") or "").strip() or                     f"{user.get('first_name','') or ''} {user.get('last_name','') or ''}".strip()
+    import datetime as _dt
+
+    existing_full = (user.get("full_name", "") or "").strip()
+    if not existing_full:
+        fn = (user.get("first_name", "") or "").strip()
+        ln = (user.get("last_name",  "") or "").strip()
+        existing_full = f"{fn} {ln}".strip()
+
+    # Parse DOB safely outside the form
+    dob_default = None
+    raw_dob = user.get("date_of_birth")
+    if raw_dob:
+        try:
+            dob_default = _dt.date.fromisoformat(str(raw_dob))
+        except Exception:
+            dob_default = None
+
+    # Pre-read all values so nothing is conditionally unbound
+    v_full  = existing_full
+    v_enrol = user.get("enrollment_number", "") or ""
+    v_prog  = user.get("program", "")           or ""
+    v_year  = int(user.get("year_of_study") or 1)
+    v_phone = user.get("phone", "")             or ""
+    v_addr  = user.get("address", "")           or ""
+    v_role  = user.get("role", "student")
+    role_idx = VALID_ROLES.index(v_role) if v_role in VALID_ROLES else VALID_ROLES.index("student")
+
+    submitted     = False
+    full_name_val = v_full
+    enrollment_no = v_enrol
+    program       = v_prog
+    year_of_study = v_year
+    dob           = dob_default
+    phone         = v_phone
+    address       = v_addr
+    role          = v_role
+
     with st.form(form_key):
-        section_header("Identity (Admin Only)")
-        c1, c2 = st.columns(2)
-        full_name_val = c1.text_input("Full Name", value=existing_full)
-        enrollment_no = c2.text_input("Enrollment Number",
-                                       value=user.get("enrollment_number","") or "")
-        program       = c1.text_input("Program / Degree", value=user.get("program","") or "")
-        c3, c4 = st.columns(2)
-        year_of_study = c3.number_input("Year of Study", min_value=1, max_value=10,
-                                         value=int(user.get("year_of_study") or 1))
-        dob_val = user.get("date_of_birth")
-        if dob_val:
-            import datetime
-            try:
-                dob_val = datetime.date.fromisoformat(str(dob_val))
-            except Exception:
-                dob_val = None
-        dob = c4.date_input("Date of Birth", value=dob_val)
+        section_header("Identity")
+        r1c1, r1c2 = st.columns(2)
+        full_name_val = r1c1.text_input("Full Name",          value=v_full)
+        enrollment_no = r1c2.text_input("Enrollment Number",  value=v_enrol)
+        r2c1, r2c2 = st.columns(2)
+        program       = r2c1.text_input("Program / Degree",   value=v_prog)
+        year_of_study = r2c2.number_input("Year of Study",    min_value=1, max_value=10, value=v_year, step=1)
         st.divider()
-        section_header("Contact Information")
-        c5, c6 = st.columns(2)
-        phone   = c5.text_input("Phone Number", value=user.get("phone","")   or "")
-        address = c6.text_input("Address",       value=user.get("address","") or "")
+        section_header("Contact")
+        r3c1, r3c2 = st.columns(2)
+        phone   = r3c1.text_input("Phone",   value=v_phone)
+        address = r3c2.text_input("Address", value=v_addr)
+        dob     = st.date_input("Date of Birth", value=dob_default)
         st.divider()
         section_header("Account")
-        role = st.selectbox("Role", VALID_ROLES,
-                             index=VALID_ROLES.index(user.get("role", "student"))
-                             if user.get("role") in VALID_ROLES
-                             else VALID_ROLES.index("student"))
+        role      = st.selectbox("Role", VALID_ROLES, index=role_idx)
         submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
 
     if submitted:
-        fn = full_name_val.strip()
+        fn    = (full_name_val or "").strip()
         parts = fn.split(" ", 1)
         return {
-            "full_name":       fn,
-            "first_name":      parts[0] if parts else fn,
-            "last_name":       parts[1] if len(parts) > 1 else "",
-            "enrollment_number": enrollment_no.strip(), "student_id": enrollment_no.strip(),
-            "program": program.strip(), "year_of_study": year_of_study,
-            "date_of_birth": str(dob) if dob else None,
-            "phone": phone.strip(), "address": address.strip(), "role": role,
+            "full_name":         fn,
+            "first_name":        parts[0] if parts else fn,
+            "last_name":         parts[1] if len(parts) > 1 else "",
+            "enrollment_number": (enrollment_no or "").strip(),
+            "program":           (program       or "").strip(),
+            "year_of_study":     year_of_study,
+            "date_of_birth":     str(dob) if dob else None,
+            "phone":             (phone   or "").strip(),
+            "address":           (address or "").strip(),
+            "role":              role,
         }
     return None
 
