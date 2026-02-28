@@ -1118,36 +1118,30 @@ def _render_add_new_user() -> None:
         password = fc2.text_input("Password *", type="password",
                                    placeholder="Min 8 characters")
 
+        # Initialise ALL variables first so they are never unbound
+        full_name = first_name = last_name = employee_id = phone = ""
+        auto_approve = True
+
         # ── Name fields ───────────────────────────────────────────
         if role_val == "student":
-            full_name  = st.text_input("Full Name *", placeholder="e.g. John Smith")
-            first_name = last_name = employee_id = phone = ""
+            full_name = st.text_input("Full Name *", placeholder="e.g. John Smith")
         else:
             fn1, fn2   = st.columns(2)
             first_name = fn1.text_input("First Name *", placeholder="e.g. John")
             last_name  = fn2.text_input("Last Name *",  placeholder="e.g. Smith")
-            full_name  = ""
 
         # ── Faculty-specific fields ───────────────────────────────
         if role_val in ("faculty", "faculty_ultra"):
-            pf1, pf2   = st.columns(2)
+            pf1, pf2    = st.columns(2)
             employee_id = pf1.text_input("Employee ID", placeholder="e.g. EMP001")
             phone       = pf2.text_input("Phone",       placeholder="e.g. +92 300 1234567")
-        elif role_val != "student":
-            employee_id = phone = ""
-
-        # ── Auto-approve toggle ───────────────────────────────────
-        if role_val in ("faculty", "faculty_ultra"):
             auto_approve = st.checkbox("Auto-approve (skip pending approval)",
                                         value=True, key="new_user_approve")
-        else:
-            auto_approve = True   # students and admins are always approved
 
         st.divider()
         submitted = st.form_submit_button("➕ Create User", use_container_width=True)
 
     if submitted:
-        # Validation
         errors = []
         if not email or "@" not in email:
             errors.append("Valid email is required.")
@@ -1169,8 +1163,8 @@ def _render_add_new_user() -> None:
                 first_name  = first_name.strip(),
                 last_name   = last_name.strip(),
                 full_name   = full_name.strip() if full_name else f"{first_name} {last_name}".strip(),
-                employee_id = employee_id.strip() if 'employee_id' in dir() else "",
-                phone       = phone.strip() if 'phone' in dir() else "",
+                employee_id = employee_id.strip(),
+                phone       = phone.strip(),
                 approved    = auto_approve,
             )
             if ok:
