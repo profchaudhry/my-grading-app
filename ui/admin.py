@@ -65,8 +65,9 @@ def _faculty_edit_form(user: dict, form_key: str) -> dict | None:
         section_header("Account")
         c5, c6   = st.columns(2)
         role     = c5.selectbox("Role", VALID_ROLES,
-                                 index=VALID_ROLES.index(user.get("role","faculty"))
-                                 if user.get("role") in VALID_ROLES else 1)
+                                 index=VALID_ROLES.index(user.get("role", "faculty"))
+                                 if user.get("role") in VALID_ROLES
+                                 else VALID_ROLES.index("faculty"))
         approved = c6.checkbox("Approved", value=bool(user.get("approved", False)))
         submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
 
@@ -111,8 +112,9 @@ def _student_edit_form(user: dict, form_key: str) -> dict | None:
         st.divider()
         section_header("Account")
         role = st.selectbox("Role", VALID_ROLES,
-                             index=VALID_ROLES.index(user.get("role","student"))
-                             if user.get("role") in VALID_ROLES else 2)
+                             index=VALID_ROLES.index(user.get("role", "student"))
+                             if user.get("role") in VALID_ROLES
+                             else VALID_ROLES.index("student"))
         submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
 
     if submitted:
@@ -245,14 +247,17 @@ def _render_user_card(user: dict, role_type: str) -> None:
 
         # ── EDIT mode ──────────────────────────────────────────────
         elif st.session_state.get(edit_key):
-            if role_type == "faculty":
-                data = _faculty_edit_form(user, f"edit_form_{uid}")
-            else:
-                data = _student_edit_form(user, f"edit_form_{uid}")
+            data = None   # always initialise before any branch
+            try:
+                if role_type == "faculty":
+                    data = _faculty_edit_form(user, f"edit_form_{uid}")
+                else:
+                    data = _student_edit_form(user, f"edit_form_{uid}")
+            except Exception as _e:
+                st.error(f"Form error: {_e}")
 
             if data is not None:
-                with st.spinner("Saving changes..."):
-                    ok = AdminService.update_profile(uid, data)
+                ok = AdminService.update_profile(uid, data)
                 if ok:
                     st.success("✅ Profile updated successfully.")
                     del st.session_state[edit_key]
