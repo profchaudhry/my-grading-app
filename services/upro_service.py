@@ -165,7 +165,7 @@ class UProService(BaseService):
                 "syndicate_id": syndicate_id,
                 "student_id":   student_id,
                 "course_id":    course_uuid,
-            }).execute()
+            }, on_conflict="syndicate_id,student_id").execute()
             UProService.clear_cache()
             return True
         except Exception as e:
@@ -239,7 +239,7 @@ class UProService(BaseService):
                 "midterm_note":     midterm_note,
                 "final_note":       final_note,
                 "updated_at":       datetime.now(timezone.utc).isoformat(),
-            }).execute()
+            }, on_conflict="course_id,student_id").execute()
             return bool(r.data)
         except Exception as e:
             logger.exception(f"Failed to save UPro score: {student_id}")
@@ -278,7 +278,7 @@ class UProService(BaseService):
     def save_aol_config(course_uuid: str, cfg: dict) -> bool:
         try:
             cfg["course_id"] = course_uuid
-            r = supabase.table("aol_config").upsert(cfg).execute()
+            r = supabase.table("aol_config").upsert(cfg, on_conflict="course_id").execute()
             UProService.clear_cache()
             return bool(r.data)
         except Exception as e:
@@ -407,7 +407,7 @@ class UProService(BaseService):
                 })
 
             if rows:
-                supabase.table("aol_gradebook").upsert(rows).execute()
+                supabase.table("aol_gradebook").upsert(rows, on_conflict="course_id,student_id").execute()
                 UProService.clear_cache()
 
             return True, f"AOL Gradebook generated for {len(rows)} student(s).", len(rows)
@@ -527,7 +527,7 @@ class UProService(BaseService):
                     "status":           row.get("status","approved"),
                 })
 
-            supabase.table("compiled_grades").upsert(main_rows).execute()
+            supabase.table("compiled_grades").upsert(main_rows, on_conflict="course_id,student_id").execute()
 
             # Mark as pushed
             supabase.table("aol_gradebook").update({
