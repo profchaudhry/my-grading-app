@@ -1,4 +1,4 @@
-# _ADMIN_UI_VERSION = 9  # cache-bust marker
+# _ADMIN_UI_VERSION = 12  # cache-bust marker
 import streamlit as st
 import pandas as pd
 from core.layout import base_console
@@ -38,142 +38,115 @@ def _full_name(profile: dict) -> str:
     return f"{first} {last}".strip() or profile.get("email", "—")
 
 
-def _faculty_edit_form(user: dict, form_key: str) -> dict | None:
-    """Admin can edit all faculty fields. All variables pre-declared to prevent UnboundLocalError."""
-    # Pre-declare ALL variables with safe defaults BEFORE the form
-    f_first         = (user.get("first_name",        "") or "").strip()
-    f_last          = (user.get("last_name",          "") or "").strip()
-    f_employee_id   = (user.get("employee_id",        "") or "").strip()
-    f_qualification = (user.get("qualification",      "") or "").strip()
-    f_phone         = (user.get("phone",              "") or "").strip()
-    f_office        = (user.get("office_location",    "") or "").strip()
-    f_address       = (user.get("address",            "") or "").strip()
-    f_specialization= (user.get("specialization",     "") or "").strip()
-    f_publications  = (user.get("publications",       "") or "").strip()
-    f_role_default  = user.get("role", "faculty")
-    f_role_idx      = VALID_ROLES.index(f_role_default) if f_role_default in VALID_ROLES else VALID_ROLES.index("faculty")
-    f_approved      = bool(user.get("approved", False))
-    f_submitted     = False
-    # Widget return values (overwritten by form widgets below)
-    first = f_first; last = f_last; employee_id = f_employee_id
-    qualification = f_qualification; phone = f_phone; office = f_office
-    address = f_address; specialization = f_specialization
-    publications = f_publications; role = f_role_default; approved = f_approved
+def _faculty_edit_form(uid: str, user: dict) -> None:
+    """Render faculty edit fields (no st.form — avoids all form-related exceptions).
+    Saves directly when Save button clicked. Returns nothing."""
+    k = f"fe_{uid}"   # short key prefix
 
-    with st.form(form_key):
-        section_header("Identity")
-        fa1, fa2 = st.columns(2)
-        first         = fa1.text_input("First Name",   value=f_first)
-        last          = fa2.text_input("Last Name",    value=f_last)
-        fb1, fb2 = st.columns(2)
-        employee_id   = fb1.text_input("Employee ID",  value=f_employee_id)
-        qualification = fb2.text_input("Qualification (e.g. PhD, MSc)", value=f_qualification)
-        st.divider()
-        section_header("Contact")
-        fc1, fc2 = st.columns(2)
-        phone   = fc1.text_input("Phone Number",    value=f_phone)
-        office  = fc2.text_input("Office Location", value=f_office)
-        address = st.text_input("Address",           value=f_address)
-        st.divider()
-        section_header("Academic")
-        specialization = st.text_input("Specialization / Subject Area", value=f_specialization)
-        publications   = st.text_area("Publications", value=f_publications, height=80)
-        st.divider()
-        section_header("Account")
-        fd1, fd2 = st.columns(2)
-        role      = fd1.selectbox("Role", VALID_ROLES, index=f_role_idx)
-        approved  = fd2.checkbox("Approved", value=f_approved)
-        f_submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
+    section_header("Identity")
+    a1, a2 = st.columns(2)
+    first  = a1.text_input("First Name",  value=user.get("first_name","")     or "", key=f"{k}_first")
+    last   = a2.text_input("Last Name",   value=user.get("last_name","")      or "", key=f"{k}_last")
+    b1, b2 = st.columns(2)
+    emp_id = b1.text_input("Employee ID", value=user.get("employee_id","")    or "", key=f"{k}_emp")
+    qual   = b2.text_input("Qualification",value=user.get("qualification","") or "", key=f"{k}_qual")
+    st.divider()
+    section_header("Contact")
+    c1, c2 = st.columns(2)
+    phone  = c1.text_input("Phone",          value=user.get("phone","")           or "", key=f"{k}_phone")
+    office = c2.text_input("Office Location",value=user.get("office_location","") or "", key=f"{k}_office")
+    addr   = st.text_input("Address",        value=user.get("address","")         or "", key=f"{k}_addr")
+    st.divider()
+    section_header("Academic")
+    spec   = st.text_input("Specialization", value=user.get("specialization","")  or "", key=f"{k}_spec")
+    pubs   = st.text_area("Publications",    value=user.get("publications","")    or "", height=80, key=f"{k}_pubs")
+    st.divider()
+    section_header("Account")
+    d1, d2 = st.columns(2)
+    v_role = user.get("role","faculty")
+    r_idx  = VALID_ROLES.index(v_role) if v_role in VALID_ROLES else VALID_ROLES.index("faculty")
+    role   = d1.selectbox("Role", VALID_ROLES, index=r_idx, key=f"{k}_role")
+    appr   = d2.checkbox("Approved", value=bool(user.get("approved",False)),     key=f"{k}_appr")
+    st.divider()
 
-    if f_submitted:
-        return {
-            "first_name":      first.strip(),         "last_name":       last.strip(),
-            "employee_id":     employee_id.strip(),    "qualification":   qualification.strip(),
-            "phone":           phone.strip(),          "office_location": office.strip(),
-            "address":         address.strip(),        "specialization":  specialization.strip(),
-            "publications":    publications.strip(),   "role":            role,
-            "approved":        approved,
+    s1, s2 = st.columns(2)
+    if s1.button("💾 Save Changes", key=f"{k}_save", use_container_width=True, type="primary"):
+        data = {
+            "first_name": first.strip(), "last_name": last.strip(),
+            "employee_id": emp_id.strip(), "qualification": qual.strip(),
+            "phone": phone.strip(), "office_location": office.strip(),
+            "address": addr.strip(), "specialization": spec.strip(),
+            "publications": pubs.strip(), "role": role, "approved": appr,
         }
-    return None
-def _student_edit_form(user: dict, form_key: str) -> dict | None:
-    """Admin can edit all student fields. All variables pre-declared to prevent UnboundLocalError."""
-    import datetime as _dt
+        if AdminService.update_profile(uid, data):
+            st.success("✅ Profile updated successfully.")
+            st.session_state.pop(f"editing_{uid}", None)
+            st.rerun()
+        else:
+            st.error("❌ Save failed.")
+    if s2.button("✖ Cancel", key=f"{k}_cancel", use_container_width=True):
+        st.session_state.pop(f"editing_{uid}", None)
+        st.rerun()
+def _student_edit_form(uid: str, user: dict) -> None:
+    """Render student edit fields (no st.form — avoids all form-related exceptions).
+    Saves directly when Save button clicked. Returns nothing."""
+    k = f"se_{uid}"   # short key prefix
 
-    # Build display name
-    s_full = (user.get("full_name", "") or "").strip()
-    if not s_full:
-        s_full = f"{user.get('first_name','') or ''} {user.get('last_name','') or ''}".strip()
-
-    # Parse DOB safely — never pass None to date_input
-    s_dob: _dt.date = _dt.date.today()
-    raw_dob = user.get("date_of_birth")
-    if raw_dob:
-        try:
-            s_dob = _dt.date.fromisoformat(str(raw_dob))
-        except Exception:
-            pass
-
-    # Safe int conversion for year
+    v_full  = (user.get("full_name","")         or "").strip()
+    if not v_full:
+        v_full = (f"{user.get('first_name','') or ''} {user.get('last_name','') or ''}").strip()
     try:
-        s_year = int(user.get("year_of_study") or 1)
-        s_year = max(1, min(10, s_year))
+        v_year = max(1, min(10, int(user.get("year_of_study") or 1)))
     except (ValueError, TypeError):
-        s_year = 1
+        v_year = 1
 
-    s_enrol = (user.get("enrollment_number", "") or "").strip()
-    s_prog  = (user.get("program",            "") or "").strip()
-    s_phone = (user.get("phone",              "") or "").strip()
-    s_addr  = (user.get("address",            "") or "").strip()
-    s_role  = user.get("role", "student")
-    s_ridx  = VALID_ROLES.index(s_role) if s_role in VALID_ROLES else VALID_ROLES.index("student")
+    section_header("Identity")
+    a1, a2 = st.columns(2)
+    full_name  = a1.text_input("Full Name",          value=v_full,                             key=f"{k}_full")
+    enrol_no   = a2.text_input("Enrollment Number",  value=user.get("enrollment_number","") or "", key=f"{k}_enrol")
+    b1, b2 = st.columns(2)
+    program    = b1.text_input("Program / Degree",   value=user.get("program","")           or "", key=f"{k}_prog")
+    year       = b2.number_input("Year of Study", min_value=1, max_value=10, value=v_year, step=1, key=f"{k}_year")
+    st.divider()
+    section_header("Contact")
+    c1, c2 = st.columns(2)
+    phone   = c1.text_input("Phone",   value=user.get("phone","")   or "", key=f"{k}_phone")
+    addr    = c2.text_input("Address", value=user.get("address","") or "", key=f"{k}_addr")
+    dob     = st.text_input("Date of Birth (YYYY-MM-DD, optional)",
+                             value=user.get("date_of_birth","") or "", key=f"{k}_dob")
+    st.divider()
+    section_header("Account")
+    v_role  = user.get("role","student")
+    r_idx   = VALID_ROLES.index(v_role) if v_role in VALID_ROLES else VALID_ROLES.index("student")
+    role    = st.selectbox("Role", VALID_ROLES, index=r_idx, key=f"{k}_role")
+    st.divider()
 
-    # Pre-declare all widget outputs so they are always bound
-    s_submitted   = False
-    full_name_val = s_full
-    enrollment_no = s_enrol
-    program       = s_prog
-    year_of_study = s_year
-    dob           = s_dob
-    phone         = s_phone
-    address       = s_addr
-    role          = s_role
-
-    with st.form(form_key):
-        section_header("Identity")
-        sa1, sa2 = st.columns(2)
-        full_name_val = sa1.text_input("Full Name",         value=s_full)
-        enrollment_no = sa2.text_input("Enrollment Number", value=s_enrol)
-        sb1, sb2 = st.columns(2)
-        program       = sb1.text_input("Program / Degree",  value=s_prog)
-        year_of_study = sb2.number_input("Year of Study",   min_value=1, max_value=10,
-                                          value=s_year, step=1)
-        st.divider()
-        section_header("Contact")
-        sc1, sc2 = st.columns(2)
-        phone   = sc1.text_input("Phone",   value=s_phone)
-        address = sc2.text_input("Address", value=s_addr)
-        dob     = st.date_input("Date of Birth", value=s_dob)
-        st.divider()
-        section_header("Account")
-        role        = st.selectbox("Role", VALID_ROLES, index=s_ridx)
-        s_submitted = st.form_submit_button("💾 Save Changes", use_container_width=True)
-
-    if s_submitted:
-        fn    = (full_name_val or "").strip()
+    s1, s2 = st.columns(2)
+    if s1.button("💾 Save Changes", key=f"{k}_save", use_container_width=True, type="primary"):
+        fn    = full_name.strip()
         parts = fn.split(" ", 1)
-        return {
+        data  = {
             "full_name":         fn,
             "first_name":        parts[0] if parts else fn,
             "last_name":         parts[1] if len(parts) > 1 else "",
-            "enrollment_number": (enrollment_no or "").strip(),
-            "program":           (program       or "").strip(),
-            "year_of_study":     int(year_of_study),
-            "date_of_birth":     str(dob),
-            "phone":             (phone   or "").strip(),
-            "address":           (address or "").strip(),
+            "enrollment_number": enrol_no.strip(),
+            "program":           program.strip(),
+            "year_of_study":     year,
+            "date_of_birth":     dob.strip() or None,
+            "phone":             phone.strip(),
+            "address":           addr.strip(),
             "role":              role,
         }
-    return None
+        if AdminService.update_profile(uid, data):
+            st.success("✅ Profile updated successfully.")
+            st.session_state.pop(f"editing_{uid}", None)
+            st.rerun()
+        else:
+            st.error("❌ Save failed.")
+    if s2.button("✖ Cancel", key=f"{k}_cancel", use_container_width=True):
+        st.session_state.pop(f"editing_{uid}", None)
+        st.rerun()
+
 def _reset_password_form(user: dict) -> None:
     uid   = user["id"]
     email = user.get("email","")
@@ -289,32 +262,11 @@ def _render_user_card(user: dict, role_type: str) -> None:
 
         # ── EDIT mode ──────────────────────────────────────────────
         elif st.session_state.get(edit_key):
+            # Form functions handle Save/Cancel internally — no return value
             if role_type == "faculty":
-                _fac_result = _faculty_edit_form(user, f"edit_form_{uid}")
-                if isinstance(_fac_result, dict):
-                    if AdminService.update_profile(uid, _fac_result):
-                        st.success("✅ Profile updated successfully.")
-                        del st.session_state[edit_key]
-                        st.rerun()
-                    else:
-                        st.error("❌ Save failed. Please try again.")
+                _faculty_edit_form(uid, user)
             else:
-                try:
-                    _stu_result = _student_edit_form(user, f"edit_form_{uid}")
-                except Exception as _stu_err:
-                    st.error(f"Form error: {_stu_err}")
-                    _stu_result = None
-                if isinstance(_stu_result, dict):
-                    if AdminService.update_profile(uid, _stu_result):
-                        st.success("✅ Profile updated successfully.")
-                        del st.session_state[edit_key]
-                        st.rerun()
-                    else:
-                        st.error("❌ Save failed. Please try again.")
-
-            if st.button("← Cancel", key=f"cancel_edit_{uid}"):
-                del st.session_state[edit_key]
-                st.rerun()
+                _student_edit_form(uid, user)
 
         # ── RESET PASSWORD mode ────────────────────────────────────
         elif st.session_state.get(reset_key):
@@ -1335,56 +1287,48 @@ def _render_faculty_ultra_users() -> None:
                     del st.session_state[f"confirm_delete_{uid}"]
                     st.rerun()
 
-            # ── Inline Edit Form ──────────────────────────────────
+            # ── Inline Edit Form (no st.form — plain widgets) ────
             if st.session_state.get(edit_key):
                 st.divider()
-                with st.form(f"ultra_edit_form_{uid}"):
-                    st.markdown("**✏️ Edit Profile**")
-                    ef1, ef2 = st.columns(2)
-                    new_first = ef1.text_input("First Name", value=user.get("first_name",""))
-                    new_last  = ef2.text_input("Last Name",  value=user.get("last_name",""))
-                    ef3, ef4  = st.columns(2)
-                    new_emp   = ef3.text_input("Employee ID",     value=user.get("employee_id","") or "")
-                    new_phone = ef4.text_input("Phone",           value=user.get("phone","") or "")
-                    ef5, ef6  = st.columns(2)
-                    new_qual  = ef5.text_input("Qualification",   value=user.get("qualification","") or "")
-                    new_spec  = ef6.text_input("Specialization",  value=user.get("specialization","") or "")
-                    ef7, ef8  = st.columns(2)
-                    new_off   = ef7.text_input("Office Location", value=user.get("office_location","") or "")
-                    new_addr  = ef8.text_input("Address",         value=user.get("address","") or "")
-                    new_pub   = st.text_area("Publications", value=user.get("publications","") or "", height=60)
-                    fs1, fs2  = st.columns(2)
-                    save   = fs1.form_submit_button("💾 Save",   use_container_width=True)
-                    cancel = fs2.form_submit_button("✖ Cancel", use_container_width=True)
-                if save:
+                uk = f"ue_{uid}"
+                section_header("Edit Faculty Ultra Profile")
+                ue1, ue2 = st.columns(2)
+                new_first = ue1.text_input("First Name",      value=user.get("first_name","")      or "", key=f"{uk}_first")
+                new_last  = ue2.text_input("Last Name",       value=user.get("last_name","")       or "", key=f"{uk}_last")
+                ue3, ue4  = st.columns(2)
+                new_emp   = ue3.text_input("Employee ID",     value=user.get("employee_id","")     or "", key=f"{uk}_emp")
+                new_phone = ue4.text_input("Phone",           value=user.get("phone","")           or "", key=f"{uk}_phone")
+                ue5, ue6  = st.columns(2)
+                new_qual  = ue5.text_input("Qualification",   value=user.get("qualification","")   or "", key=f"{uk}_qual")
+                new_spec  = ue6.text_input("Specialization",  value=user.get("specialization","")  or "", key=f"{uk}_spec")
+                ue7, ue8  = st.columns(2)
+                new_off   = ue7.text_input("Office Location", value=user.get("office_location","") or "", key=f"{uk}_off")
+                new_addr  = ue8.text_input("Address",         value=user.get("address","")         or "", key=f"{uk}_addr")
+                new_pub   = st.text_area("Publications",      value=user.get("publications","")    or "", height=60, key=f"{uk}_pub")
+                us1, us2  = st.columns(2)
+                if us1.button("💾 Save", key=f"{uk}_save", use_container_width=True, type="primary"):
                     AdminService.update_profile(uid, {
-                        "first_name":       new_first,
-                        "last_name":        new_last,
-                        "employee_id":      new_emp,
-                        "phone":            new_phone,
-                        "qualification":    new_qual,
-                        "specialization":   new_spec,
-                        "office_location":  new_off,
-                        "address":          new_addr,
-                        "publications":     new_pub,
+                        "first_name": new_first, "last_name": new_last,
+                        "employee_id": new_emp,  "phone": new_phone,
+                        "qualification": new_qual, "specialization": new_spec,
+                        "office_location": new_off, "address": new_addr,
+                        "publications": new_pub,
                     })
                     st.session_state.pop(edit_key, None)
                     st.rerun()
-                if cancel:
+                if us2.button("✖ Cancel", key=f"{uk}_cancel", use_container_width=True):
                     st.session_state.pop(edit_key, None)
                     st.rerun()
 
-            # ── Inline Reset Password Form ────────────────────────
+            # ── Inline Reset Password (no st.form — plain widgets) ─
             if st.session_state.get(reset_key):
                 st.divider()
-                with st.form(f"ultra_reset_form_{uid}"):
-                    st.markdown("**🔑 Reset Password**")
-                    new_pw  = st.text_input("New Password", type="password")
-                    new_pw2 = st.text_input("Confirm Password", type="password")
-                    rs1, rs2 = st.columns(2)
-                    rsave   = rs1.form_submit_button("🔑 Reset",  use_container_width=True)
-                    rcancel = rs2.form_submit_button("✖ Cancel", use_container_width=True)
-                if rsave:
+                rk = f"ur_{uid}"
+                section_header("Reset Password")
+                new_pw  = st.text_input("New Password",     type="password", key=f"{rk}_pw1")
+                new_pw2 = st.text_input("Confirm Password", type="password", key=f"{rk}_pw2")
+                rr1, rr2 = st.columns(2)
+                if rr1.button("🔑 Reset", key=f"{rk}_save", use_container_width=True, type="primary"):
                     if not new_pw or new_pw != new_pw2:
                         st.error("Passwords must match and not be empty.")
                     else:
@@ -1396,7 +1340,7 @@ def _render_faculty_ultra_users() -> None:
                             st.rerun()
                         else:
                             st.error(f"Reset failed: {msg}")
-                if rcancel:
+                if rr2.button("✖ Cancel", key=f"{rk}_cancel", use_container_width=True):
                     st.session_state.pop(reset_key, None)
                     st.rerun()
 
