@@ -447,6 +447,7 @@ def _route_subpage() -> None:
         "semesters":       _render_semesters,
         "courses":         _render_courses,
         "faculty":         lambda: _render_users("faculty"),
+        "faculty_ultra":   _render_faculty_ultra_users,
         "students":        lambda: _render_users("student"),
         "pending":         _render_pending_approvals,
         "enrollment":      _render_enrollment_management,
@@ -506,7 +507,7 @@ def _render_academic_ops_hub() -> None:
 
 def _render_user_control_hub() -> None:
     # If a non-user-control subpage is active, clear it (came from other hub)
-    _user_subs = {"faculty", "students", "pending", "enrollment", "bulk_enrollment"}
+    _user_subs = {"faculty", "faculty_ultra", "students", "pending", "enrollment", "bulk_enrollment"}
     if st.session_state.get("_subpage") and        st.session_state["_subpage"] not in _user_subs:
         st.session_state["_subpage"] = None
     if st.session_state.get("_subpage"):
@@ -524,14 +525,20 @@ def _render_user_control_hub() -> None:
     except Exception:
         fac_count = stu_count = pend_count = 0
 
+    try:
+        ultra_count = sum(1 for u in all_users if u.get("role") == "faculty_ultra")
+    except Exception:
+        ultra_count = 0
+
     c1, c2, c3 = st.columns(3)
-    _hub_tile(c1, "👨‍🏫", "Faculty",          "faculty",      f"{fac_count} member(s)")
-    _hub_tile(c2, "🎓",  "Students",          "students",     f"{stu_count} student(s)")
-    _hub_tile(c3, "✅",  "Pending Approvals", "pending",      f"{pend_count} pending")
+    _hub_tile(c1, "👨‍🏫", "Faculty",          "faculty",       f"{fac_count} member(s)")
+    _hub_tile(c2, "⭐",  "Faculty Ultra",     "faculty_ultra", f"{ultra_count} member(s)")
+    _hub_tile(c3, "🎓",  "Students",          "students",      f"{stu_count} student(s)")
     st.markdown("<br>", unsafe_allow_html=True)
-    c4, c5, _ = st.columns(3)
-    _hub_tile(c4, "📋", "Enrollment",      "enrollment")
-    _hub_tile(c5, "📤", "Bulk Enrollment", "bulk_enrollment")
+    c4, c5, c6 = st.columns(3)
+    _hub_tile(c4, "✅",  "Pending Approvals", "pending",       f"{pend_count} pending")
+    _hub_tile(c5, "📋",  "Enrollment",        "enrollment")
+    _hub_tile(c6, "📤",  "Bulk Enrollment",   "bulk_enrollment")
 
 
 # ================================================================
@@ -1079,6 +1086,168 @@ def _render_users(role_type: str) -> None:
         st.divider()
         for u in users:
             _render_user_card(u, "student")
+
+
+def _render_faculty_ultra_users() -> None:
+    st.title("⭐ Faculty Ultra Management")
+
+    all_users   = AdminService.get_all_users()
+    ultra_users = [u for u in all_users if u.get("role") == "faculty_ultra"]
+
+    search = st.text_input(
+        "🔍 Search by name or email",
+        placeholder="Type to filter...",
+        key="faculty_ultra_search",
+    )
+    if search:
+        q = search.lower()
+        ultra_users = [
+            u for u in ultra_users
+            if q in u.get("email", "").lower() or q in _full_name(u).lower()
+        ]
+
+    if not ultra_users:
+        st.info("No Faculty Ultra members found.")
+        return
+
+    st.caption(f"{len(ultra_users)} Faculty Ultra member(s)")
+    st.divider()
+
+    for user in ultra_users:
+        uid   = user["id"]
+        name  = _full_name(user)
+        email = user.get("email", "—")
+
+        with st.expander(f"⭐ **{name}** — {email}"):
+            # Profile info
+            c1, c2, c3 = st.columns(3)
+            c1.markdown(f"**Employee ID:** {user.get('employee_id','—') or '—'}")
+            c2.markdown(f"**Phone:** {user.get('phone','—') or '—'}")
+            c3.markdown(f"**Office:** {user.get('office_location','—') or '—'}")
+            c1.markdown(f"**Qualification:** {user.get('qualification','—') or '—'}")
+            c2.markdown(f"**Specialization:** {user.get('specialization','—') or '—'}")
+            c3.markdown(f"**Approved:** {'Yes ✅' if user.get('approved') else 'No ⏳'}")
+            if user.get("address"):
+                st.markdown(f"**Address:** {user['address']}")
+            if user.get("publications"):
+                st.markdown(f"**Publications:** {user['publications']}")
+
+            st.divider()
+
+            col_edit, col_reset, col_down, col_del = st.columns(4)
+
+            # ── Downgrade to Faculty ──────────────────────────────
+            if col_down.button(
+                "⬇️ Downgrade to Faculty",
+                key=f"downgrade_{uid}",
+                use_container_width=True,
+                help="Remove Faculty Ultra status, revert to regular Faculty",
+            ):
+                if AdminService.update_profile(uid, {"role": "faculty"}):
+                    st.success(f"{name} downgraded to Faculty.")
+                    st.rerun()
+                else:
+                    st.error("Downgrade failed.")
+
+            # ── Edit ──────────────────────────────────────────────
+            edit_key = f"editing_{uid}"
+            if col_edit.button("✏️ Edit", key=f"ultra_edit_btn_{uid}",
+                                use_container_width=True):
+                st.session_state[edit_key] = True
+                st.rerun()
+
+            # ── Reset Password ────────────────────────────────────
+            reset_key = f"resetting_{uid}"
+            if col_reset.button("🔑 Reset Password", key=f"ultra_reset_btn_{uid}",
+                                 use_container_width=True):
+                st.session_state[reset_key] = True
+                st.rerun()
+
+            # ── Delete ────────────────────────────────────────────
+            if col_del.button("🗑️ Delete", key=f"ultra_del_btn_{uid}",
+                               use_container_width=True):
+                st.session_state[f"confirm_delete_{uid}"] = True
+
+            if st.session_state.get(f"confirm_delete_{uid}"):
+                st.warning(f"⚠️ Permanently delete **{name}**?")
+                y, n = st.columns(2)
+                if y.button("Yes, Delete", key=f"ultra_confirm_yes_{uid}",
+                             use_container_width=True):
+                    if AdminService.delete_user(uid):
+                        st.success("User deleted.")
+                        del st.session_state[f"confirm_delete_{uid}"]
+                        st.rerun()
+                    else:
+                        st.error("Delete failed.")
+                if n.button("Cancel", key=f"ultra_confirm_no_{uid}",
+                             use_container_width=True):
+                    del st.session_state[f"confirm_delete_{uid}"]
+                    st.rerun()
+
+            # ── Inline Edit Form ──────────────────────────────────
+            if st.session_state.get(edit_key):
+                st.divider()
+                with st.form(f"ultra_edit_form_{uid}"):
+                    st.markdown("**✏️ Edit Profile**")
+                    ef1, ef2 = st.columns(2)
+                    new_first = ef1.text_input("First Name", value=user.get("first_name",""))
+                    new_last  = ef2.text_input("Last Name",  value=user.get("last_name",""))
+                    ef3, ef4  = st.columns(2)
+                    new_emp   = ef3.text_input("Employee ID",     value=user.get("employee_id","") or "")
+                    new_phone = ef4.text_input("Phone",           value=user.get("phone","") or "")
+                    ef5, ef6  = st.columns(2)
+                    new_qual  = ef5.text_input("Qualification",   value=user.get("qualification","") or "")
+                    new_spec  = ef6.text_input("Specialization",  value=user.get("specialization","") or "")
+                    ef7, ef8  = st.columns(2)
+                    new_off   = ef7.text_input("Office Location", value=user.get("office_location","") or "")
+                    new_addr  = ef8.text_input("Address",         value=user.get("address","") or "")
+                    new_pub   = st.text_area("Publications", value=user.get("publications","") or "", height=60)
+                    fs1, fs2  = st.columns(2)
+                    save   = fs1.form_submit_button("💾 Save",   use_container_width=True)
+                    cancel = fs2.form_submit_button("✖ Cancel", use_container_width=True)
+                if save:
+                    AdminService.update_profile(uid, {
+                        "first_name":       new_first,
+                        "last_name":        new_last,
+                        "employee_id":      new_emp,
+                        "phone":            new_phone,
+                        "qualification":    new_qual,
+                        "specialization":   new_spec,
+                        "office_location":  new_off,
+                        "address":          new_addr,
+                        "publications":     new_pub,
+                    })
+                    st.session_state.pop(edit_key, None)
+                    st.rerun()
+                if cancel:
+                    st.session_state.pop(edit_key, None)
+                    st.rerun()
+
+            # ── Inline Reset Password Form ────────────────────────
+            if st.session_state.get(reset_key):
+                st.divider()
+                with st.form(f"ultra_reset_form_{uid}"):
+                    st.markdown("**🔑 Reset Password**")
+                    new_pw  = st.text_input("New Password", type="password")
+                    new_pw2 = st.text_input("Confirm Password", type="password")
+                    rs1, rs2 = st.columns(2)
+                    rsave   = rs1.form_submit_button("🔑 Reset",  use_container_width=True)
+                    rcancel = rs2.form_submit_button("✖ Cancel", use_container_width=True)
+                if rsave:
+                    if not new_pw or new_pw != new_pw2:
+                        st.error("Passwords must match and not be empty.")
+                    else:
+                        from services.auth_service import AuthService
+                        ok, msg = AuthService.admin_reset_password(uid, new_pw)
+                        if ok:
+                            st.success("Password reset successfully.")
+                            st.session_state.pop(reset_key, None)
+                            st.rerun()
+                        else:
+                            st.error(f"Reset failed: {msg}")
+                if rcancel:
+                    st.session_state.pop(reset_key, None)
+                    st.rerun()
 
 
 def _render_pending_approvals() -> None:
