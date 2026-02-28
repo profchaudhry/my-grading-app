@@ -108,17 +108,17 @@ def inject_global_css() -> None:
         border-color: rgba(255,255,255,0.25) !important;
         transform: translateX(3px) !important;
     }}
-    /* ── SELECTED nav item — white pill + red accent ── */
+    /* ── SELECTED nav item — dark teal bg + red accent ── */
     [data-testid="stSidebar"] .stRadio [data-baseweb="radio"][aria-checked="true"] label,
     [data-testid="stSidebar"] .stRadio label:has(input:checked) {{
-        background: rgba(255,255,255,0.95) !important;
-        border-color: rgba(255,255,255,0.95) !important;
-        color: {BRAND['deep']} !important;
+        background: rgba(0,0,0,0.28) !important;
+        border-color: rgba(255,255,255,0.30) !important;
+        color: #ffffff !important;
         font-weight: 700 !important;
         transform: translateX(4px) !important;
-        box-shadow: 0 3px 14px rgba(0,0,0,0.25) !important;
-        border-left: 4px solid #e03030 !important;
-        padding-left: 10px !important;
+        box-shadow: 0 3px 14px rgba(0,0,0,0.30) !important;
+        border-left: 6px solid #e03030 !important;
+        padding-left: 8px !important;
     }}
     [data-testid="stSidebar"] .stRadio [data-baseweb="radio"] > div:first-child {{
         display: none !important;
