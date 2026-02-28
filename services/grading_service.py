@@ -113,7 +113,7 @@ class GradingService(BaseService):
     def save_course_scheme(course_uuid: str, data: dict) -> bool:
         try:
             data["course_id"] = course_uuid
-            r = supabase.table("course_grading_scheme").upsert(data).execute()
+            r = supabase.table("course_grading_scheme").upsert(data, on_conflict="course_id").execute()
             GradingService.clear_cache()
             return bool(r.data)
         except Exception as e:
@@ -191,7 +191,7 @@ class GradingService(BaseService):
             r = supabase.table("quiz_config").upsert({
                 "course_id": course_uuid, "method": method,
                 "best_of_n": best_of_n, "compiled": False,
-            }).execute()
+            }, on_conflict="course_id").execute()
             return bool(r.data)
         except Exception as e:
             logger.exception("Failed to save quiz config.")
@@ -257,7 +257,7 @@ class GradingService(BaseService):
             r = supabase.table("assignment_config").upsert({
                 "course_id": course_uuid, "method": method,
                 "best_of_n": best_of_n, "compiled": False,
-            }).execute()
+            }, on_conflict="course_id").execute()
             return bool(r.data)
         except Exception as e:
             logger.exception("Failed to save assignment config.")
@@ -282,7 +282,7 @@ class GradingService(BaseService):
                 "course_id": course_uuid,
                 "entry_mode": entry_mode,
                 "total_marks": total_marks,
-            }).execute()
+            }, on_conflict="course_id").execute()
             return r.data[0] if r.data else None
         except Exception as e:
             logger.exception("Failed to create midterm.")
@@ -337,7 +337,7 @@ class GradingService(BaseService):
                 "course_id": course_uuid,
                 "entry_mode": entry_mode,
                 "total_marks": total_marks,
-            }).execute()
+            }, on_conflict="course_id").execute()
             return r.data[0] if r.data else None
         except Exception as e:
             logger.exception("Failed to create final exam.")
@@ -390,7 +390,7 @@ class GradingService(BaseService):
         try:
             r = supabase.table("quiz_marks").upsert({
                 "quiz_id": quiz_id, "student_id": student_id, "obtained": obtained,
-            }).execute()
+            }, on_conflict="quiz_id,student_id").execute()
             return bool(r.data)
         except Exception as e:
             logger.exception("Failed to save quiz mark.")
@@ -411,7 +411,7 @@ class GradingService(BaseService):
         try:
             r = supabase.table("assignment_marks").upsert({
                 "assignment_id": assignment_id, "student_id": student_id, "obtained": obtained,
-            }).execute()
+            }, on_conflict="assignment_id,student_id").execute()
             return bool(r.data)
         except Exception as e:
             logger.exception("Failed to save assignment mark.")
@@ -433,7 +433,7 @@ class GradingService(BaseService):
             r = supabase.table("midterm_marks").upsert({
                 "midterm_id": midterm_id, "student_id": student_id,
                 "total_obtained": obtained,
-            }).execute()
+            }, on_conflict="midterm_id,student_id").execute()
             return bool(r.data)
         except Exception as e:
             logger.exception("Failed to save midterm mark.")
@@ -455,7 +455,7 @@ class GradingService(BaseService):
             r = supabase.table("midterm_question_marks").upsert({
                 "midterm_id": midterm_id, "question_id": question_id,
                 "student_id": student_id, "obtained": obtained,
-            }).execute()
+            }, on_conflict="question_id,student_id").execute()
             return bool(r.data)
         except Exception as e:
             logger.exception("Failed to save midterm question mark.")
@@ -477,7 +477,7 @@ class GradingService(BaseService):
             r = supabase.table("final_marks").upsert({
                 "final_id": final_id, "student_id": student_id,
                 "total_obtained": obtained,
-            }).execute()
+            }, on_conflict="final_id,student_id").execute()
             return bool(r.data)
         except Exception as e:
             logger.exception("Failed to save final mark.")
@@ -499,7 +499,7 @@ class GradingService(BaseService):
             r = supabase.table("final_question_marks").upsert({
                 "final_id": final_id, "question_id": question_id,
                 "student_id": student_id, "obtained": obtained,
-            }).execute()
+            }, on_conflict="question_id,student_id").execute()
             return bool(r.data)
         except Exception as e:
             logger.exception("Failed to save final question mark.")
