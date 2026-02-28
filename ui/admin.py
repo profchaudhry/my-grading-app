@@ -1,3 +1,4 @@
+# _ADMIN_UI_VERSION = 7  # cache-bust marker
 import streamlit as st
 import pandas as pd
 from core.layout import base_console
@@ -273,22 +274,24 @@ def _render_user_card(user: dict, role_type: str) -> None:
 
         # ── EDIT mode ──────────────────────────────────────────────
         elif st.session_state.get(edit_key):
-            # Build form and get result — result is None until submitted
-            _edit_result = None
             if role_type == "faculty":
-                _edit_result = _faculty_edit_form(user, f"edit_form_{uid}")
+                _fac_result = _faculty_edit_form(user, f"edit_form_{uid}")
+                if isinstance(_fac_result, dict):
+                    if AdminService.update_profile(uid, _fac_result):
+                        st.success("✅ Profile updated successfully.")
+                        del st.session_state[edit_key]
+                        st.rerun()
+                    else:
+                        st.error("❌ Save failed. Please try again.")
             else:
-                _edit_result = _student_edit_form(user, f"edit_form_{uid}")
-
-            # Only save when the form was actually submitted (result is a dict)
-            if isinstance(_edit_result, dict):
-                _save_ok = AdminService.update_profile(uid, _edit_result)
-                if _save_ok:
-                    st.success("✅ Profile updated successfully.")
-                    del st.session_state[edit_key]
-                    st.rerun()
-                else:
-                    st.error("❌ Save failed. Please try again.")
+                _stu_result = _student_edit_form(user, f"edit_form_{uid}")
+                if isinstance(_stu_result, dict):
+                    if AdminService.update_profile(uid, _stu_result):
+                        st.success("✅ Profile updated successfully.")
+                        del st.session_state[edit_key]
+                        st.rerun()
+                    else:
+                        st.error("❌ Save failed. Please try again.")
 
             if st.button("← Cancel", key=f"cancel_edit_{uid}"):
                 del st.session_state[edit_key]
@@ -1135,24 +1138,34 @@ def _render_add_new_user() -> None:
         "🛡️ Admin":          "admin",
     }
 
+    # Role selector sits outside the form so it can change form fields live
     role_label = st.selectbox("User Role *", list(ROLES.keys()), key="new_user_role")
     role_val   = ROLES[role_label]
+
+    # All widget output variables are pre-declared here to guarantee they are
+    # always bound, regardless of which branch the form renders.
+    email        = ""
+    password     = ""
+    full_name    = ""
+    first_name   = ""
+    last_name    = ""
+    employee_id  = ""
+    phone        = ""
+    auto_approve = True
+    submitted    = False
 
     with st.form("add_new_user_form", clear_on_submit=True):
         st.markdown(f"**Creating: {role_label}**")
         st.divider()
 
-        # ── Credentials ──────────────────────────────────────────
+        # Credentials — always shown
         fc1, fc2 = st.columns(2)
         email    = fc1.text_input("Email Address *", placeholder="user@example.com")
         password = fc2.text_input("Password *", type="password",
                                    placeholder="Min 8 characters")
+        st.divider()
 
-        # Initialise ALL variables first so they are never unbound
-        full_name = first_name = last_name = employee_id = phone = ""
-        auto_approve = True
-
-        # ── Name fields ───────────────────────────────────────────
+        # Name fields — differ by role
         if role_val == "student":
             full_name = st.text_input("Full Name *", placeholder="e.g. John Smith")
         else:
@@ -1160,48 +1173,51 @@ def _render_add_new_user() -> None:
             first_name = fn1.text_input("First Name *", placeholder="e.g. John")
             last_name  = fn2.text_input("Last Name *",  placeholder="e.g. Smith")
 
-        # ── Faculty-specific fields ───────────────────────────────
+        # Faculty-specific fields
         if role_val in ("faculty", "faculty_ultra"):
             pf1, pf2    = st.columns(2)
             employee_id = pf1.text_input("Employee ID", placeholder="e.g. EMP001")
             phone       = pf2.text_input("Phone",       placeholder="e.g. +92 300 1234567")
-            auto_approve = st.checkbox("Auto-approve (skip pending approval)",
+            st.divider()
+            auto_approve = st.checkbox("Auto-approve (skip pending queue)",
                                         value=True, key="new_user_approve")
 
         st.divider()
         submitted = st.form_submit_button("➕ Create User", use_container_width=True)
 
+    # All variables are guaranteed bound above — safe to use here
     if submitted:
         errors = []
         if not email or "@" not in email:
             errors.append("Valid email is required.")
         if not password or len(password) < 8:
             errors.append("Password must be at least 8 characters.")
-        if role_val == "student" and not full_name:
+        if role_val == "student" and not full_name.strip():
             errors.append("Full name is required for students.")
-        if role_val != "student" and (not first_name or not last_name):
+        if role_val != "student" and (not first_name.strip() or not last_name.strip()):
             errors.append("First and last name are required.")
 
         if errors:
-            for e in errors:
-                st.error(e)
+            for err in errors:
+                st.error(err)
         else:
-            ok, msg = _Auth.admin_create_user(
+            _ok, _msg = _Auth.admin_create_user(
                 email       = email.strip().lower(),
                 password    = password,
                 role        = role_val,
                 first_name  = first_name.strip(),
                 last_name   = last_name.strip(),
-                full_name   = full_name.strip() if full_name else f"{first_name} {last_name}".strip(),
+                full_name   = full_name.strip() if full_name.strip()
+                              else f"{first_name} {last_name}".strip(),
                 employee_id = employee_id.strip(),
                 phone       = phone.strip(),
                 approved    = auto_approve,
             )
-            if ok:
-                st.success(f"✅ {msg}")
+            if _ok:
+                st.success(f"✅ {_msg}")
                 st.balloons()
             else:
-                st.error(f"❌ Failed: {msg}")
+                st.error(f"❌ Failed: {_msg}")
 
 
 def _render_faculty_ultra_users() -> None:
