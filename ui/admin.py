@@ -432,10 +432,16 @@ def admin_console() -> None:
 # ================================================================
 
 def _route_subpage() -> None:
+    """Render the current subpage. Does NOT clear state — caller manages that."""
     sub = st.session_state.get("_subpage")
     if not sub:
         return
-    st.session_state["_subpage"] = None
+
+    # Back button at top
+    if st.button("← Back", key="subpage_back"):
+        st.session_state["_subpage"] = None
+        st.rerun()
+
     dispatch = {
         "departments":     _render_departments,
         "semesters":       _render_semesters,
@@ -449,6 +455,9 @@ def _route_subpage() -> None:
     fn = dispatch.get(sub)
     if fn:
         fn()
+    else:
+        st.session_state["_subpage"] = None
+        st.rerun()
 
 
 # ================================================================
@@ -471,7 +480,10 @@ def _hub_tile(col, icon: str, label: str, subpage: str, count: str = "") -> None
 
 
 def _render_academic_ops_hub() -> None:
-    # Check for sub-page first
+    # If a non-academic subpage is active, clear it (came from other hub)
+    _academic_subs = {"departments", "semesters", "courses"}
+    if st.session_state.get("_subpage") and        st.session_state["_subpage"] not in _academic_subs:
+        st.session_state["_subpage"] = None
     if st.session_state.get("_subpage"):
         _route_subpage()
         return
@@ -493,7 +505,10 @@ def _render_academic_ops_hub() -> None:
 
 
 def _render_user_control_hub() -> None:
-    # Check for sub-page first
+    # If a non-user-control subpage is active, clear it (came from other hub)
+    _user_subs = {"faculty", "students", "pending", "enrollment", "bulk_enrollment"}
+    if st.session_state.get("_subpage") and        st.session_state["_subpage"] not in _user_subs:
+        st.session_state["_subpage"] = None
     if st.session_state.get("_subpage"):
         _route_subpage()
         return
