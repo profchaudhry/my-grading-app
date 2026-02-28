@@ -261,6 +261,30 @@ def inject_global_css() -> None:
         box-shadow: 0 2px 10px rgba(48,120,144,0.18) !important;
         transform: translateY(-1px) !important;
     }}
+
+    /* ── Sidebar buttons (logout) — match nav pill style ── */
+    section[data-testid="stSidebar"] .stButton > button {{
+        background: rgba(255,255,255,0.06) !important;
+        background-color: rgba(255,255,255,0.06) !important;
+        background-image: none !important;
+        color: #ffffff !important;
+        border: 1px solid rgba(255,255,255,0.10) !important;
+        border-radius: 10px !important;
+        font-weight: 500 !important;
+        font-size: 0.88rem !important;
+        padding: 10px 14px !important;
+        box-shadow: none !important;
+        width: 100% !important;
+        text-align: left !important;
+    }}
+    section[data-testid="stSidebar"] .stButton > button:hover {{
+        background: rgba(200,40,40,0.30) !important;
+        background-color: rgba(200,40,40,0.30) !important;
+        border-color: rgba(255,80,80,0.45) !important;
+        color: #ffffff !important;
+        transform: translateX(3px) !important;
+        box-shadow: none !important;
+    }}
     html body [data-testid="baseButton-primary"],
     html body button[data-testid="baseButton-primary"],
     html body .stButton > button[kind="primary"] {{
