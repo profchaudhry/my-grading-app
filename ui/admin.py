@@ -1,4 +1,4 @@
-# _ADMIN_UI_VERSION = 7  # cache-bust marker
+# _ADMIN_UI_VERSION = 8  # cache-bust marker
 import streamlit as st
 import pandas as pd
 from core.layout import base_console
@@ -106,7 +106,10 @@ def _student_edit_form(user: dict, form_key: str) -> dict | None:
     v_full  = existing_full
     v_enrol = user.get("enrollment_number", "") or ""
     v_prog  = user.get("program", "")           or ""
-    v_year  = int(user.get("year_of_study") or 1)
+    try:
+        v_year = int(user.get("year_of_study") or 1)
+    except (ValueError, TypeError):
+        v_year = 1
     v_phone = user.get("phone", "")             or ""
     v_addr  = user.get("address", "")           or ""
     v_role  = user.get("role", "student")
@@ -135,7 +138,9 @@ def _student_edit_form(user: dict, form_key: str) -> dict | None:
         r3c1, r3c2 = st.columns(2)
         phone   = r3c1.text_input("Phone",   value=v_phone)
         address = r3c2.text_input("Address", value=v_addr)
-        dob     = st.date_input("Date of Birth", value=dob_default)
+        import datetime as _dt2
+        _dob_val = dob_default if dob_default is not None else _dt2.date.today()
+        dob      = st.date_input("Date of Birth (optional)", value=_dob_val)
         st.divider()
         section_header("Account")
         role      = st.selectbox("Role", VALID_ROLES, index=role_idx)
@@ -284,7 +289,11 @@ def _render_user_card(user: dict, role_type: str) -> None:
                     else:
                         st.error("❌ Save failed. Please try again.")
             else:
-                _stu_result = _student_edit_form(user, f"edit_form_{uid}")
+                try:
+                    _stu_result = _student_edit_form(user, f"edit_form_{uid}")
+                except Exception as _stu_err:
+                    st.error(f"Form error: {_stu_err}")
+                    _stu_result = None
                 if isinstance(_stu_result, dict):
                     if AdminService.update_profile(uid, _stu_result):
                         st.success("✅ Profile updated successfully.")
