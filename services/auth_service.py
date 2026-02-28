@@ -172,6 +172,53 @@ class AuthService(BaseService):
             return False
 
     # ==========================================================
+    # ADMIN: CREATE ANY USER
+    # ==========================================================
+    @staticmethod
+    def admin_create_user(
+        email:       str,
+        password:    str,
+        role:        str,
+        first_name:  str = "",
+        last_name:   str = "",
+        full_name:   str = "",
+        employee_id: str = "",
+        phone:       str = "",
+        approved:    bool = True,
+    ) -> tuple[bool, str]:
+        try:
+            response = supabase.auth.sign_up({
+                "email":    email,
+                "password": password,
+            })
+            user = getattr(response, "user", None)
+            if not user or not getattr(user, "id", None):
+                return False, "Sign-up failed — email may already exist."
+
+            profile_data: dict = {
+                "role":     role,
+                "approved": approved,
+            }
+            if first_name:   profile_data["first_name"]  = first_name
+            if last_name:    profile_data["last_name"]   = last_name
+            if full_name:    profile_data["full_name"]   = full_name
+            if employee_id:  profile_data["employee_id"] = employee_id
+            if phone:        profile_data["phone"]        = phone
+
+            r = supabase.table("profiles").update(profile_data).eq("id", user.id).execute()
+            if not r.data:
+                supabase.table("profiles").upsert({
+                    "id": user.id, "email": email, **profile_data
+                }).execute()
+
+            AuthService.clear_cache()
+            logger.info(f"Admin created user: {email} ({role})")
+            return True, f"User '{email}' created successfully."
+        except Exception as e:
+            logger.exception(f"admin_create_user failed for {email}")
+            return False, str(e)
+
+    # ==========================================================
     # LOGOUT
     # ==========================================================
     @staticmethod
