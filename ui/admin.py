@@ -273,18 +273,17 @@ def _render_user_card(user: dict, role_type: str) -> None:
 
         # ── EDIT mode ──────────────────────────────────────────────
         elif st.session_state.get(edit_key):
-            data = None   # always initialise before any branch
-            try:
-                if role_type == "faculty":
-                    data = _faculty_edit_form(user, f"edit_form_{uid}")
-                else:
-                    data = _student_edit_form(user, f"edit_form_{uid}")
-            except Exception as _e:
-                st.error(f"Form error: {_e}")
+            # Build form and get result — result is None until submitted
+            _edit_result = None
+            if role_type == "faculty":
+                _edit_result = _faculty_edit_form(user, f"edit_form_{uid}")
+            else:
+                _edit_result = _student_edit_form(user, f"edit_form_{uid}")
 
-            if data is not None:
-                ok = AdminService.update_profile(uid, data)
-                if ok:
+            # Only save when the form was actually submitted (result is a dict)
+            if isinstance(_edit_result, dict):
+                _save_ok = AdminService.update_profile(uid, _edit_result)
+                if _save_ok:
                     st.success("✅ Profile updated successfully.")
                     del st.session_state[edit_key]
                     st.rerun()
