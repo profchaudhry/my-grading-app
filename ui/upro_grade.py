@@ -262,52 +262,62 @@ def _render_upro_scores(course_uuid, enrolled_profiles, max_quiz, max_asgn, max_
         if not members:
             st.info("No members in this syndicate.")
         else:
+            # Group apply — store applied value in session_state keyed to syndicate
+            _asgn_grp_key = f"upro_asgn_grp_{sel_syn['id']}"
             group_val = st.number_input(
                 f"Group Assignment Score (out of {max_asgn})",
                 min_value=0.0, max_value=max_asgn,
                 value=0.0, step=0.5, key="upro_asgn_group"
             )
-            apply_group = st.button("Apply to all members ↓", key="upro_asgn_apply")
+            if st.button("Apply to all members ↓", key="upro_asgn_apply"):
+                st.session_state[_asgn_grp_key] = group_val
+                st.rerun()
 
             st.divider()
-            with st.form("upro_asgn_form"):
-                entries = {}
-                for m in members:
-                    mp  = m.get("profiles", {}) or {}
-                    sid = mp["id"]
+            # Individual inputs — no st.form, so Apply rerun takes effect immediately
+            entries = {}
+            for m in members:
+                mp  = m.get("profiles", {}) or {}
+                sid = mp["id"]
+                existing    = UProService.get_student_upro_score(course_uuid, sid)
+                # Use group value if Apply was clicked, else existing DB value, else 0
+                if _asgn_grp_key in st.session_state:
+                    default_val = float(st.session_state[_asgn_grp_key])
+                elif existing and existing.get("assignment_score") is not None:
+                    default_val = float(existing["assignment_score"])
+                else:
+                    default_val = 0.0
+                default_val = min(default_val, max_asgn)
+                is_lead = sid == sel_syn.get("lead_student_id")
+                entries[sid] = st.number_input(
+                    f"{'👑 ' if is_lead else ''}{_pname(mp)} "
+                    f"`{mp.get('enrollment_number','')}`",
+                    min_value=0.0, max_value=max_asgn,
+                    value=default_val, step=0.5,
+                    key=f"upro_asgn_{sid}"
+                )
+            if st.button("💾 Save Assignment Scores", key="upro_asgn_save",
+                         use_container_width=True, type="primary"):
+                all_ok = True
+                for sid, val in entries.items():
                     existing = UProService.get_student_upro_score(course_uuid, sid)
-                    default_val = (
-                        group_val if apply_group
-                        else float(existing["assignment_score"])
-                        if existing and existing.get("assignment_score") is not None
-                        else 0.0
+                    ok = UProService.save_upro_score(
+                        course_uuid, sid,
+                        syndicate_id=sel_syn["id"],
+                        quiz_score=existing["quiz_score"] if existing else None,
+                        assignment_score=val,
+                        midterm_score=existing["midterm_score"] if existing else None,
+                        final_score=existing["final_score"] if existing else None,
                     )
-                    is_lead = sid == sel_syn.get("lead_student_id")
-                    entries[sid] = st.number_input(
-                        f"{'👑 ' if is_lead else '👤 '}{_pname(mp)} "
-                        f"`{mp.get('enrollment_number','')}`",
-                        min_value=0.0, max_value=max_asgn,
-                        value=default_val, step=0.5,
-                        key=f"upro_asgn_{sid}"
-                    )
-                if st.form_submit_button("💾 Save Assignment Scores", use_container_width=True):
-                    all_ok = True
-                    for sid, val in entries.items():
-                        existing = UProService.get_student_upro_score(course_uuid, sid)
-                        ok = UProService.save_upro_score(
-                            course_uuid, sid,
-                            syndicate_id=sel_syn["id"],
-                            quiz_score=existing["quiz_score"] if existing else None,
-                            assignment_score=val,
-                            midterm_score=existing["midterm_score"] if existing else None,
-                            final_score=existing["final_score"] if existing else None,
-                        )
-                        if not ok:
-                            all_ok = False
-                    if all_ok:
-                        st.success("✅ Assignment scores saved.")
-                    else:
-                        st.error("❌ Some saves failed.")
+                    if not ok:
+                        all_ok = False
+                # Clear group state after saving
+                st.session_state.pop(_asgn_grp_key, None)
+                if all_ok:
+                    st.success("✅ Assignment scores saved.")
+                    st.rerun()
+                else:
+                    st.error("❌ Some saves failed.")
 
     # ── Quizzes (individual per member) ───────────────────────
     with tab_quiz_sc:
