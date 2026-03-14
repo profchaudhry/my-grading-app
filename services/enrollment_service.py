@@ -3,11 +3,12 @@ import streamlit as st
 from services.supabase_client import supabase
 from services.base_service import BaseService
 from config import CACHE_TTL
+from services.cache_utils import ttl_cache
 
 logger = logging.getLogger("sylemax.enrollment_service")
 
 
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+@ttl_cache(ttl=CACHE_TTL)
 def _cached_get_course_enrollments(course_id: str) -> list:
     try:
         response = (
@@ -24,7 +25,7 @@ def _cached_get_course_enrollments(course_id: str) -> list:
         return []
 
 
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+@ttl_cache(ttl=CACHE_TTL)
 def _cached_get_student_enrollments(student_id: str) -> list:
     try:
         response = (
