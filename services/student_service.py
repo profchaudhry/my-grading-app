@@ -3,12 +3,13 @@ import streamlit as st
 from services.supabase_client import supabase
 from services.base_service import BaseService
 from config import CACHE_TTL
+from services.cache_utils import ttl_cache
 
 logger = logging.getLogger("sylemax.student_service")
 
 
 # Module-level cached function (avoids @staticmethod + @st.cache_data conflict)
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+@ttl_cache(ttl=CACHE_TTL)
 def _cached_get_student_profile(user_id: str) -> dict | None:
     try:
         response = (
