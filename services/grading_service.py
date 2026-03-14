@@ -9,6 +9,7 @@ import streamlit as st
 from services.supabase_client import supabase
 from services.base_service import BaseService
 from config import CACHE_TTL
+from services.cache_utils import ttl_cache
 
 logger = logging.getLogger("sylemax.grading_service")
 
@@ -62,7 +63,7 @@ def suggest_grade_change(score: float, scheme: dict) -> list[str]:
     return suggestions
 
 
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+@ttl_cache(ttl=CACHE_TTL)
 def _cached_global_scheme() -> dict:
     try:
         r = supabase.table("grading_scheme").select("*")\
@@ -73,7 +74,7 @@ def _cached_global_scheme() -> dict:
         return DEFAULT_SCHEME.copy()
 
 
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+@ttl_cache(ttl=CACHE_TTL)
 def _cached_course_scheme(course_uuid: str) -> dict | None:
     try:
         r = supabase.table("course_grading_scheme").select("*")\
