@@ -5,6 +5,7 @@ import streamlit as st
 from services.supabase_client import supabase
 from services.base_service import BaseService
 from config import CACHE_TTL
+from services.cache_utils import ttl_cache
 
 logger = logging.getLogger("sylemax.course_service")
 
@@ -25,7 +26,7 @@ def _unique_course_id() -> str:
     return _generate_course_id()  # fallback
 
 
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+@ttl_cache(ttl=CACHE_TTL)
 def _cached_get_all_courses(semester_id: str | None = None) -> list:
     try:
         query = (
@@ -43,7 +44,7 @@ def _cached_get_all_courses(semester_id: str | None = None) -> list:
         return []
 
 
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+@ttl_cache(ttl=CACHE_TTL)
 def _cached_get_course(course_id: str) -> dict | None:
     try:
         response = (
@@ -59,7 +60,7 @@ def _cached_get_course(course_id: str) -> dict | None:
         return None
 
 
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+@ttl_cache(ttl=CACHE_TTL)
 def _cached_get_faculty_courses(faculty_id: str, semester_id: str | None = None) -> list:
     try:
         query = (
@@ -81,7 +82,7 @@ def _cached_get_faculty_courses(faculty_id: str, semester_id: str | None = None)
         return []
 
 
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+@ttl_cache(ttl=CACHE_TTL)
 def _cached_lookup_by_course_id(course_id_str: str) -> dict | None:
     """Look up a course by its short alphanumeric course_id (e.g. CS3X7K2)."""
     try:
