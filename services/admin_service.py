@@ -3,11 +3,12 @@ import streamlit as st
 from services.supabase_client import supabase
 from services.base_service import BaseService
 from config import CACHE_TTL
+from services.cache_utils import ttl_cache
 
 logger = logging.getLogger("sylemax.admin_service")
 
 
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+@ttl_cache(ttl=CACHE_TTL)
 def _cached_get_all_users() -> list:
     try:
         response = (
@@ -22,7 +23,7 @@ def _cached_get_all_users() -> list:
         return []
 
 
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+@ttl_cache(ttl=CACHE_TTL)
 def _cached_get_pending_faculty() -> list:
     try:
         response = (
@@ -39,7 +40,7 @@ def _cached_get_pending_faculty() -> list:
         return []
 
 
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+@ttl_cache(ttl=CACHE_TTL)
 def _cached_get_system_metrics() -> dict:
     try:
         response = (
