@@ -18,6 +18,7 @@ def student_console() -> None:
 
     user    = st.session_state.user
     profile = st.session_state.get("profile") or {}
+    role    = st.session_state.get("role") or "student"
 
     menu = base_console(
         "Student Panel",
@@ -79,7 +80,6 @@ def student_console() -> None:
         if not grades:
             st.info("No grades have been released yet. Check back after your faculty submits and admin approves your grades.")
         else:
-            from ui.styles import section_header
 
             # GPA summary
             gpa_vals = [g["gpa_points"] for g in grades if g.get("gpa_points") is not None]
@@ -140,7 +140,6 @@ def student_console() -> None:
         if not aol_grades:
             st.info("No UPro grades have been released yet.")
         else:
-            from ui.styles import section_header
             section_header("Released UPro (AOL) Grades")
             for g in aol_grades:
                 course = g.get("courses", {}) or {}
@@ -166,9 +165,6 @@ def student_console() -> None:
     # ==============================================================
     elif menu == "🏷️ My Syndicate":
         st.title("🏷️ My Syndicate")
-
-        from services.enrollment_service import EnrollmentService
-        from ui.styles import section_header
 
         enrollments = EnrollmentService.get_student_enrollments(user.id)
         if not enrollments:
