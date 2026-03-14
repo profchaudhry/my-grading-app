@@ -1,5 +1,5 @@
 import logging
-import streamlit as st
+from services.cache_utils import clear_all as _clear_all
 
 logger = logging.getLogger("sylemax.base_service")
 
@@ -8,9 +8,9 @@ class BaseService:
 
     @staticmethod
     def clear_cache() -> None:
-        """Clears all Streamlit cached data. Safe to call even if cache is empty."""
+        """Clears all in-process cached data."""
         try:
-            st.cache_data.clear()
+            _clear_all()
             logger.info("Cache cleared.")
         except Exception:
             logger.warning("Cache clear attempted but failed silently.")
