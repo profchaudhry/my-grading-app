@@ -561,13 +561,14 @@ def _render_aol_gradebook(course_uuid, course_info, scheme, is_admin):
             obt = qb[i]["obtained"] if i < len(qb) else "—"
             row[f"Q{i+1} (/{mx})"] = obt
 
-        # Quiz total (sum of individual quiz obtained) and original UPro input
-        q_tot     = g.get("quiz_total")
-        q_max_sum = sum(q_maxs) if q_maxs else "?"
+        # Quiz total and original UPro input score
+        q_tot      = g.get("quiz_total")
+        q_max_sum  = sum(q_maxs) if q_maxs else "?"
+        q_meta     = _extract_upro_meta(g.get("quiz_breakdown"))
+        quiz_upro  = q_meta.get("upro_score")
+        q_weight   = q_meta.get("weight") or scheme.get("weight_quiz", "?")
         row[f"Quiz Total (/{q_max_sum})"] = f"{q_tot:.2f}" if q_tot is not None else "—"
-        # quiz_upro_score = the raw value entered by user in UPro Scores tab
-        quiz_upro = g.get("quiz_upro_score")
-        row[f"Quiz UPro Score (/{scheme.get('weight_quiz','?')})"] = (
+        row[f"Quiz UPro Score (/{q_weight})"] = (
             f"{quiz_upro:.2f}" if quiz_upro is not None else "—"
         )
 
@@ -577,11 +578,13 @@ def _render_aol_gradebook(course_uuid, course_info, scheme, is_admin):
             obt = ab[i]["obtained"] if i < len(ab) else "—"
             row[f"A{i+1} (/{mx})"] = obt
 
-        a_tot     = g.get("assignment_total")
-        a_max_sum = sum(a_maxs) if a_maxs else "?"
+        a_tot      = g.get("assignment_total")
+        a_max_sum  = sum(a_maxs) if a_maxs else "?"
+        a_meta     = _extract_upro_meta(g.get("assignment_breakdown"))
+        asgn_upro  = a_meta.get("upro_score")
+        a_weight   = a_meta.get("weight") or scheme.get("weight_assignment", "?")
         row[f"Asgn Total (/{a_max_sum})"] = f"{a_tot:.2f}" if a_tot is not None else "—"
-        asgn_upro = g.get("assignment_upro_score")
-        row[f"Asgn UPro Score (/{scheme.get('weight_assignment','?')})"] = (
+        row[f"Asgn UPro Score (/{a_weight})"] = (
             f"{asgn_upro:.2f}" if asgn_upro is not None else "—"
         )
 
@@ -637,8 +640,9 @@ def _render_aol_gradebook(course_uuid, course_info, scheme, is_admin):
                     q_tot     = g.get("quiz_total")
                     q_max_sum = sum(q_maxs) if q_maxs else "?"
                     st.markdown(f"**Quiz Total: {q_tot if q_tot is not None else '—'} / {q_max_sum}**")
-                    quiz_upro = g.get("quiz_upro_score")
-                    w_q = scheme.get("weight_quiz", "?")
+                    q_meta2   = _extract_upro_meta(g.get("quiz_breakdown"))
+                    quiz_upro = q_meta2.get("upro_score")
+                    w_q       = q_meta2.get("weight") or scheme.get("weight_quiz", "?")
                     st.markdown(f"**Quiz UPro Score (entered): {f'{quiz_upro:.2f}' if quiz_upro is not None else '—'} / {w_q}**")
             with bc2:
                 if ab:
@@ -649,8 +653,9 @@ def _render_aol_gradebook(course_uuid, course_info, scheme, is_admin):
                     a_tot     = g.get("assignment_total")
                     a_max_sum = sum(a_maxs) if a_maxs else "?"
                     st.markdown(f"**Asgn Total: {a_tot if a_tot is not None else '—'} / {a_max_sum}**")
-                    asgn_upro = g.get("assignment_upro_score")
-                    w_a = scheme.get("weight_assignment", "?")
+                    a_meta2   = _extract_upro_meta(g.get("assignment_breakdown"))
+                    asgn_upro = a_meta2.get("upro_score")
+                    w_a       = a_meta2.get("weight") or scheme.get("weight_assignment", "?")
                     st.markdown(f"**Asgn UPro Score (entered): {f'{asgn_upro:.2f}' if asgn_upro is not None else '—'} / {w_a}**")
 
             bc3, bc4 = st.columns(2)
@@ -744,17 +749,34 @@ def _render_aol_gradebook(course_uuid, course_info, scheme, is_admin):
 
 
 def _parse_breakdown(raw) -> list:
-    """Safely parse a breakdown field that may be a JSON string or list."""
+    """Safely parse a breakdown field. Returns only the real items (no _meta)."""
     if not raw:
         return []
     if isinstance(raw, str):
         try:
-            return json.loads(raw)
+            raw = json.loads(raw)
         except Exception:
             return []
     if isinstance(raw, list):
-        return raw
+        return [item for item in raw if "_upro_score" not in item]
     return []
+
+
+def _extract_upro_meta(raw) -> dict:
+    """Extract the embedded UPro score metadata from a breakdown field.
+    Returns {"upro_score": float, "weight": float} or {}."""
+    if not raw:
+        return {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return {}
+    if isinstance(raw, list):
+        for item in raw:
+            if "_upro_score" in item:
+                return {"upro_score": item["_upro_score"], "weight": item.get("_weight")}
+    return {}
 
 
 def _show_breakdown(col, label, breakdown, key_field):
