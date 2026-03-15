@@ -402,7 +402,7 @@ def _render_student_syndicate(user, profile):
                             status="confirmed",         # auto-confirmed; admin can rename
                         )
                         if result:
-                            UProService.add_member(result["id"], course_uuid, user.id)
+                            UProService.add_member(result["id"], course_uuid, user.id)  # creator always added
                             st.success(
                                 f"✅ Syndicate **{name}** created! "
                                 "Admin/faculty may edit the name. Others can now join."
@@ -444,11 +444,12 @@ def _render_student_syndicate(user, profile):
                                 )
                             if st.button(f"➕ Join {syn['name']}", key=f"stu_join_{syn['id']}",
                                          use_container_width=True, type="primary"):
-                                if UProService.add_member(syn["id"], course_uuid, user.id):
+                                _ok, _msg = UProService.add_member(syn["id"], course_uuid, user.id)
+                                if _ok:
                                     st.success(f"✅ You have joined **{syn['name']}**!")
                                     st.rerun()
                                 else:
-                                    st.error("Failed to join.")
+                                    st.error(f"❌ {_msg}")
 
 
 def _render_vote_section(course_uuid, syndicate_id, voter_id, members, current_lead_id):
