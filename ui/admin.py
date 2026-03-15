@@ -13,6 +13,7 @@ from services.student_bulk_service import StudentBulkService
 from services.profile_service import ProfileService
 from services.supabase_client import supabase
 from ui.styles import section_header
+from services.profile_request_service import ProfileRequestService
 from ui.components import render_change_password
 from ui.admin_gradebook import render_admin_gradebook
 from ui.reports import render_admin_reports
@@ -457,6 +458,7 @@ def _route_subpage() -> None:
         "enrollment":      _render_enrollment_management,
         "bulk_enrollment": _render_bulk_upload,
         "add_new_user":    _render_add_new_user,
+        "profile_requests": _render_profile_requests,
     }
     fn = dispatch.get(sub)
     if fn:
@@ -512,7 +514,7 @@ def _render_academic_ops_hub() -> None:
 
 def _render_user_control_hub() -> None:
     # If a non-user-control subpage is active, clear it (came from other hub)
-    _user_subs = {"faculty", "faculty_ultra", "students", "pending", "enrollment", "bulk_enrollment", "add_new_user"}
+    _user_subs = {"faculty", "faculty_ultra", "students", "pending", "enrollment", "bulk_enrollment", "add_new_user", "profile_requests"}
     if st.session_state.get("_subpage") and        st.session_state["_subpage"] not in _user_subs:
         st.session_state["_subpage"] = None
     if st.session_state.get("_subpage"):
@@ -547,6 +549,13 @@ def _render_user_control_hub() -> None:
     st.markdown("<br>", unsafe_allow_html=True)
     c7, c8, c9 = st.columns(3)
     _hub_tile(c7, "➕",  "Add New User",      "add_new_user")
+    st.markdown("<br>", unsafe_allow_html=True)
+    c10, c11, c12 = st.columns(3)
+    try:
+        req_count = len([r for r in ProfileRequestService.get_pending_requests()])
+    except Exception:
+        req_count = 0
+    _hub_tile(c10, "📝", "Profile Requests",  "profile_requests", f"{req_count} pending")
 
 
 # ================================================================
@@ -1343,6 +1352,90 @@ def _render_faculty_ultra_users() -> None:
                 if rr2.button("✖ Cancel", key=f"{rk}_cancel", use_container_width=True):
                     st.session_state.pop(reset_key, None)
                     st.rerun()
+
+
+def _render_profile_requests() -> None:
+    """Admin view: review and approve/reject student profile change requests."""
+    from ui.styles import page_header
+    page_header("📝", "Profile Change Requests",
+                "Review student requests to update locked profile fields")
+
+    tab_pending, tab_all = st.tabs(["⏳ Pending", "📋 All Requests"])
+
+    with tab_pending:
+        requests = ProfileRequestService.get_pending_requests()
+        if not requests:
+            st.success("No pending requests.")
+        else:
+            section_header("Pending Requests", f"{len(requests)} awaiting review")
+            for req in requests:
+                p       = req.get("profiles", {}) or {}
+                fname   = req.get("field_name", "—")
+                flabel  = {"date_of_birth": "Date of Birth",
+                           "personal_email": "Personal Email"}.get(fname, fname)
+                pname   = (p.get("full_name") or
+                           f"{p.get('first_name','')} {p.get('last_name','')}").strip() or p.get("email","—")
+                created = (req.get("created_at") or "")[:10]
+                with st.expander(
+                    f"⏳ **{pname}** — {flabel}: "
+                    f"`{req.get('old_value','—')}` → `{req.get('new_value','—')}` ({created})"
+                ):
+                    c1, c2 = st.columns(2)
+                    c1.markdown(f"**Student:** {pname}")
+                    c2.markdown(f"**Enrollment:** {p.get('enrollment_number','—')}")
+                    c1.markdown(f"**Field:** {flabel}")
+                    c2.markdown(f"**Email:** {p.get('email','—')}")
+                    c1.markdown(f"**Current value:** `{req.get('old_value','—') or '—'}`")
+                    c2.markdown(f"**Requested value:** `{req.get('new_value','—')}`")
+                    st.divider()
+                    note_key = f"req_note_{req['id']}"
+                    note = st.text_input("Admin note (optional)", key=note_key, value="")
+                    col_a, col_r = st.columns(2)
+                    if col_a.button("✅ Approve", key=f"approve_req_{req['id']}",
+                                    use_container_width=True, type="primary"):
+                        ok, msg = ProfileRequestService.approve_request(req["id"], note)
+                        if ok:
+                            st.success(f"✅ {msg}")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {msg}")
+                    if col_r.button("❌ Reject", key=f"reject_req_{req['id']}",
+                                    use_container_width=True):
+                        ok, msg = ProfileRequestService.reject_request(req["id"], note or "Rejected by admin.")
+                        if ok:
+                            st.warning("Request rejected.")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {msg}")
+
+    with tab_all:
+        all_reqs = ProfileRequestService.get_all_requests()
+        if not all_reqs:
+            st.info("No requests yet.")
+            return
+        STATUS_ICON = {"pending": "⏳", "approved": "✅", "rejected": "❌"}
+        for req in all_reqs:
+            p       = req.get("profiles", {}) or {}
+            fname   = req.get("field_name", "—")
+            flabel  = {"date_of_birth": "Date of Birth",
+                       "personal_email": "Personal Email"}.get(fname, fname)
+            status  = req.get("status", "—")
+            icon    = STATUS_ICON.get(status, "❓")
+            pname   = (p.get("full_name") or
+                       f"{p.get('first_name','')} {p.get('last_name','')}").strip() or p.get("email","—")
+            created = (req.get("created_at") or "")[:10]
+            with st.expander(
+                f"{icon} **{pname}** — {flabel} → `{req.get('new_value','—')}` "
+                f"({status.capitalize()}, {created})"
+            ):
+                c1, c2 = st.columns(2)
+                c1.markdown(f"**Student:** {pname}")
+                c2.markdown(f"**Status:** {icon} {status.capitalize()}")
+                c1.markdown(f"**Field:** {flabel}")
+                c2.markdown(f"**Old → New:** `{req.get('old_value','—')}` → `{req.get('new_value','—')}`")
+                if req.get("admin_note"):
+                    st.caption(f"Admin note: {req['admin_note']}")
+                st.caption(f"Submitted: {created}")
 
 
 def _render_pending_approvals() -> None:
