@@ -25,9 +25,13 @@ def render_dashboard() -> None:
         st.warning("Profile data could not be loaded. Please contact support.")
         return
 
-    first = data.get("first_name", "").strip()
-    last  = data.get("last_name", "").strip()
-    full_name = f"{first} {last}".strip() or user.email
+    # Students store name in full_name; faculty/admin use first_name + last_name
+    full_name_field = (data.get("full_name") or "").strip()
+    first = (data.get("first_name") or "").strip()
+    last  = (data.get("last_name")  or "").strip()
+    full_name = full_name_field or f"{first} {last}".strip() or user.email
+    # Display name: prefer full_name, fall back to first name, then email
+    display_first = full_name_field or first or full_name
 
     # Welcome banner
     st.markdown(f"""
@@ -39,7 +43,7 @@ def render_dashboard() -> None:
             color: white;
         ">
             <div style="font-size: 26px; font-weight: 700; margin-bottom: 4px;">
-                Welcome back, {first or user.email}! 👋
+                Welcome back, {display_first}! 👋
             </div>
             <div style="font-size: 14px; color: #94a3b8;">
                 {role.capitalize()} · {user.email}
