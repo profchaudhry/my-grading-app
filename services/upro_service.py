@@ -375,7 +375,6 @@ class UProService(BaseService):
                     ]
                     quiz_total  = round(sum(d["obtained"] for d in quiz_breakdown), 2)
                     # Store the upro score (out of w_quiz) for display
-                    quiz_upro_score = upro_val
 
                 # ── Assignment ────────────────────────────────
                 if "assignment" in components and s.get("assignment_score") is not None:
@@ -390,7 +389,6 @@ class UProService(BaseService):
                         for i in range(len(a_maxs))
                     ]
                     asgn_total  = round(sum(d["obtained"] for d in assignment_breakdown), 2)
-                    asgn_upro_score = upro_val
 
                 # ── Midterm ───────────────────────────────────
                 # midterm_score from UPro is direct total obtained (out of w_mid)
@@ -432,23 +430,37 @@ class UProService(BaseService):
                 letter, gpa = score_to_letter(grand, scheme) if grand is not None \
                               else (None, None)
 
+                # Embed original UPro input scores as metadata in breakdown JSON
+                # This avoids needing new DB columns
+                def _with_meta(breakdown, upro_val, weight):
+                    if upro_val is None:
+                        return breakdown
+                    return list(breakdown) + [{"_upro_score": upro_val, "_weight": weight}]
+
                 rows.append({
                     "course_id":             course_uuid,
                     "student_id":            sid,
                     "syndicate_id":          syndicate_id,
-                    "quiz_breakdown":        json.dumps(quiz_breakdown),
-                    "assignment_breakdown":  json.dumps(assignment_breakdown),
-                    "midterm_breakdown":     json.dumps(midterm_breakdown),
-                    "final_breakdown":       json.dumps(final_breakdown),
+                    "quiz_breakdown":        json.dumps(_with_meta(
+                                                quiz_breakdown,
+                                                float(s["quiz_score"]) if s.get("quiz_score") is not None else None,
+                                                w_quiz)),
+                    "assignment_breakdown":  json.dumps(_with_meta(
+                                                assignment_breakdown,
+                                                float(s["assignment_score"]) if s.get("assignment_score") is not None else None,
+                                                w_asgn)),
+                    "midterm_breakdown":     json.dumps(_with_meta(
+                                                midterm_breakdown,
+                                                float(s["midterm_score"]) if s.get("midterm_score") is not None else None,
+                                                w_mid)),
+                    "final_breakdown":       json.dumps(_with_meta(
+                                                final_breakdown,
+                                                float(s["final_score"]) if s.get("final_score") is not None else None,
+                                                w_fin)),
                     "quiz_total":            quiz_total,
                     "assignment_total":      asgn_total,
                     "midterm_total":         mid_total,
                     "final_total":           fin_total,
-                    # Original scores as entered by user in UPro Scores tab
-                    "quiz_upro_score":       float(s["quiz_score"])       if s.get("quiz_score")       is not None else None,
-                    "assignment_upro_score": float(s["assignment_score"]) if s.get("assignment_score") is not None else None,
-                    "midterm_upro_score":    float(s["midterm_score"])    if s.get("midterm_score")    is not None else None,
-                    "final_upro_score":      float(s["final_score"])      if s.get("final_score")      is not None else None,
                     "grand_total":           grand,
                     "letter_grade":          letter,
                     "gpa_points":            gpa,
