@@ -200,6 +200,111 @@ class UProService(BaseService):
             logger.exception(f"Failed to remove member: {student_id}")
             return False
 
+    # ── Syndicate Config ──────────────────────────────────────────
+
+    @staticmethod
+    def get_syndicate_config(course_uuid: str) -> dict:
+        """Returns max_members and join_deadline from aol_config."""
+        cfg = UProService.get_aol_config(course_uuid)
+        return {
+            "max_syndicate_members":   int(cfg.get("max_syndicate_members") or 5),
+            "syndicate_join_deadline": cfg.get("syndicate_join_deadline"),
+        }
+
+    @staticmethod
+    def save_syndicate_config(course_uuid: str, max_members: int,
+                               join_deadline) -> bool:
+        """Save syndicate settings into aol_config."""
+        cfg = UProService.get_aol_config(course_uuid)
+        cfg["max_syndicate_members"]   = max_members
+        cfg["syndicate_join_deadline"] = join_deadline   # None or "YYYY-MM-DD"
+        return UProService.save_aol_config(course_uuid, cfg)
+
+    @staticmethod
+    def is_join_open(course_uuid: str) -> bool:
+        """Returns True if students can still join/leave syndicates."""
+        import datetime as _dt
+        cfg      = UProService.get_syndicate_config(course_uuid)
+        deadline = cfg.get("syndicate_join_deadline")
+        if not deadline:
+            return True
+        try:
+            dl = _dt.date.fromisoformat(str(deadline))
+            return _dt.date.today() <= dl
+        except Exception:
+            return True
+
+    @staticmethod
+    def get_allowed_syndicate_count(course_uuid: str, enrolled_count: int) -> int:
+        """
+        Calculate max allowed syndicates.
+        Base: ceil(enrolled / max_members)
+        But also accounts for remainder: e.g. 34 students / 5 = 6 full + 1 partial = 7
+        """
+        cfg        = UProService.get_syndicate_config(course_uuid)
+        max_m      = cfg["max_syndicate_members"]
+        if max_m <= 0:
+            return 1
+        full, rem  = divmod(enrolled_count, max_m)
+        return full + (1 if rem > 0 else 0)
+
+    @staticmethod
+    def submit_vote(course_uuid: str, voter_id: str,
+                    syndicate_id: str, nominee_id: str) -> tuple[bool, str]:
+        """
+        Student votes for a syndicate lead nominee.
+        Stored in syndicate_votes table (upsert per voter — one vote per student).
+        """
+        try:
+            supabase.table("syndicate_votes").upsert({
+                "course_id":    course_uuid,
+                "syndicate_id": syndicate_id,
+                "voter_id":     voter_id,
+                "nominee_id":   nominee_id,
+            }, on_conflict="syndicate_id,voter_id").execute()
+            UProService.clear_cache()
+            # Tally and update lead if majority
+            UProService._tally_votes(syndicate_id)
+            return True, "Vote submitted."
+        except Exception as e:
+            logger.exception(f"Vote failed: {voter_id}")
+            return False, str(e)
+
+    @staticmethod
+    def _tally_votes(syndicate_id: str) -> None:
+        """Count votes and set lead to whoever has the most votes."""
+        try:
+            r = supabase.table("syndicate_votes")                .select("nominee_id")                .eq("syndicate_id", syndicate_id)                .execute()
+            if not r.data:
+                return
+            tally: dict = {}
+            for row in r.data:
+                nid = row["nominee_id"]
+                tally[nid] = tally.get(nid, 0) + 1
+            leader = max(tally, key=lambda k: tally[k])
+            supabase.table("syndicates").update({"lead_student_id": leader})                .eq("id", syndicate_id).execute()
+            UProService.clear_cache()
+        except Exception:
+            pass
+
+    @staticmethod
+    def get_votes(syndicate_id: str) -> list:
+        """Get all votes for a syndicate."""
+        try:
+            r = supabase.table("syndicate_votes")                .select("*, voter:profiles!syndicate_votes_voter_id_fkey(full_name, first_name, last_name, enrollment_number), nominee:profiles!syndicate_votes_nominee_id_fkey(full_name, first_name, last_name)")                .eq("syndicate_id", syndicate_id)                .execute()
+            return r.data or []
+        except Exception:
+            return []
+
+    @staticmethod
+    def get_student_vote(syndicate_id: str, voter_id: str) -> dict | None:
+        """Get a specific student's vote in a syndicate."""
+        try:
+            r = supabase.table("syndicate_votes")                .select("*")                .eq("syndicate_id", syndicate_id)                .eq("voter_id", voter_id)                .execute()
+            return r.data[0] if r.data else None
+        except Exception:
+            return None
+
     # ── UPro Scores ───────────────────────────────────────────────
 
     @staticmethod
@@ -273,6 +378,9 @@ class UProService(BaseService):
             "midterm_q_marks":       [12.5, 12.5],
             "num_final_questions":   3,
             "final_q_marks":         [15.0, 15.0, 10.0],
+            # Syndicate settings
+            "max_syndicate_members": 5,
+            "syndicate_join_deadline": None,   # ISO date string or None
         }
         try:
             r = supabase.table("aol_config").select("*")\
