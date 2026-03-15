@@ -174,18 +174,36 @@ class UProService(BaseService):
         return UProService.update_syndicate(syndicate_id, {"status": "rejected"})
 
     @staticmethod
-    def add_member(syndicate_id: str, course_uuid: str, student_id: str) -> bool:
+    def add_member(syndicate_id: str, course_uuid: str, student_id: str) -> tuple[bool, str]:
+        """
+        Add a student to a syndicate.
+        Returns (True, "") on success, (False, error_message) on failure.
+        Uses insert with duplicate check instead of upsert to avoid
+        constraint dependency on the DB schema.
+        """
         try:
-            supabase.table("syndicate_members").upsert({
+            # Check if student is already in this syndicate
+            existing = supabase.table("syndicate_members")                .select("id")                .eq("syndicate_id", syndicate_id)                .eq("student_id", student_id)                .execute()
+            if existing.data:
+                return True, ""   # already a member — treat as success
+
+            # Check if student is already in a different syndicate for this course
+            in_course = supabase.table("syndicate_members")                .select("syndicate_id")                .eq("course_id", course_uuid)                .eq("student_id", student_id)                .execute()
+            if in_course.data:
+                return False, "You are already in a syndicate for this course."
+
+            r = supabase.table("syndicate_members").insert({
                 "syndicate_id": syndicate_id,
                 "student_id":   student_id,
                 "course_id":    course_uuid,
-            }, on_conflict="syndicate_id,student_id").execute()
+            }).execute()
             UProService.clear_cache()
-            return True
+            if r.data:
+                return True, ""
+            return False, "Insert returned no data."
         except Exception as e:
             logger.exception(f"Failed to add member {student_id}")
-            return False
+            return False, str(e)
 
     @staticmethod
     def remove_member(syndicate_id: str, student_id: str) -> bool:
