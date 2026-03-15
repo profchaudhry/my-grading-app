@@ -527,47 +527,136 @@ def _render_aol_gradebook(course_uuid, course_info, scheme, is_admin):
 
     section_header("Results", f"{len(aol_rows)} student(s)")
 
-    # Summary table
+    # ── Build dynamic column headers based on config ───────────
+    nq  = int(cfg.get("num_quizzes", 0))
+    na  = int(cfg.get("num_assignments", 0))
+    q_maxs = cfg.get("quiz_marks_list", [])
+    a_maxs = cfg.get("assignment_marks_list", [])
+    mq_maxs = cfg.get("midterm_q_marks", [])
+    fq_maxs = cfg.get("final_q_marks", [])
+
     rows = []
     for g in aol_rows:
         p      = g.get("profiles", {}) or {}
         letter = g.get("letter_grade") or "—"
         total  = g.get("grand_total")
-        syn    = (g.get("syndicates") or {}).get("name","—")
+        syn    = (g.get("syndicates") or {}).get("name", "—")
         suggs  = suggest_grade_change(total, scheme) if total is not None else []
-        rows.append({
-            "Name":         _pname(p),
-            "Enrollment":   p.get("enrollment_number","—"),
-            "Syndicate":    syn,
-            "Quiz":         g.get("quiz_total","—"),
-            "Assignment":   g.get("assignment_total","—"),
-            "Midterm":      g.get("midterm_total","—"),
-            "Final":        g.get("final_total","—"),
-            "Total":        f"{total:.2f}" if total is not None else "—",
-            "Grade":        f"{_grade_icon(letter)} {letter}",
-            "GPA":          g.get("gpa_points","—"),
-            "Suggestions":  " | ".join(suggs) if suggs else "—",
-            "Status":       g.get("status","—").capitalize(),
-        })
+
+        # Parse breakdowns
+        qb  = _parse_breakdown(g.get("quiz_breakdown"))
+        ab  = _parse_breakdown(g.get("assignment_breakdown"))
+        mb  = _parse_breakdown(g.get("midterm_breakdown"))
+        fb  = _parse_breakdown(g.get("final_breakdown"))
+
+        row = {
+            "Name":       _pname(p),
+            "Enrollment": p.get("enrollment_number", "—"),
+            "Syndicate":  syn,
+        }
+
+        # Individual quiz scores
+        for i in range(nq):
+            mx  = q_maxs[i] if i < len(q_maxs) else "?"
+            obt = qb[i]["obtained"] if i < len(qb) else "—"
+            row[f"Q{i+1} (/{mx})"] = obt
+
+        # Quiz total and UPro score
+        q_tot = g.get("quiz_total")
+        q_max_sum = sum(q_maxs) if q_maxs else "?"
+        row[f"Quiz Total (/{q_max_sum})"] = f"{q_tot:.2f}" if q_tot is not None else "—"
+        row["Quiz UPro Score"] = g.get("quiz_total", "—")   # stored as the distributed total
+
+        # Individual assignment scores
+        for i in range(na):
+            mx  = a_maxs[i] if i < len(a_maxs) else "?"
+            obt = ab[i]["obtained"] if i < len(ab) else "—"
+            row[f"A{i+1} (/{mx})"] = obt
+
+        a_tot = g.get("assignment_total")
+        a_max_sum = sum(a_maxs) if a_maxs else "?"
+        row[f"Asgn Total (/{a_max_sum})"] = f"{a_tot:.2f}" if a_tot is not None else "—"
+        row["Asgn UPro Score"] = g.get("assignment_total", "—")
+
+        # Midterm questions
+        for i, item in enumerate(mb):
+            mx  = item.get("max_marks", mq_maxs[i] if i < len(mq_maxs) else "?")
+            row[f"MQ{i+1} (/{mx})"] = item.get("obtained", "—")
+        m_tot = g.get("midterm_total")
+        mq_sum = sum(mq_maxs) if mq_maxs else "?"
+        row[f"Midterm (/{mq_sum})"] = f"{m_tot:.2f}" if m_tot is not None else "—"
+
+        # Final questions
+        for i, item in enumerate(fb):
+            mx  = item.get("max_marks", fq_maxs[i] if i < len(fq_maxs) else "?")
+            row[f"FQ{i+1} (/{mx})"] = item.get("obtained", "—")
+        f_tot = g.get("final_total")
+        fq_sum = sum(fq_maxs) if fq_maxs else "?"
+        row[f"Final (/{fq_sum})"] = f"{f_tot:.2f}" if f_tot is not None else "—"
+
+        row["▶ Total"]       = f"{total:.2f}" if total is not None else "—"
+        row["Grade"]         = f"{_grade_icon(letter)} {letter}"
+        row["GPA"]           = g.get("gpa_points", "—")
+        row["Suggestions"]   = " | ".join(suggs) if suggs else "—"
+        row["Status"]        = g.get("status", "—").capitalize()
+        rows.append(row)
 
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-    # Breakdown expanders
+    # ── Per-student detailed breakdown expander ────────────────
     with st.expander("🔍 Detailed Breakdown per Student"):
         sel_name = st.selectbox("Select Student", [r["Name"] for r in rows],
                                  key="aol_detail_sel")
-        g = next((x for x in aol_rows if _pname(x.get("profiles",{})) == sel_name), None)
+        g = next((x for x in aol_rows if _pname(x.get("profiles", {})) == sel_name), None)
         if g:
-            p = g.get("profiles", {}) or {}
+            p   = g.get("profiles", {}) or {}
+            syn = (g.get("syndicates") or {}).get("name", "—")
             st.markdown(
                 f"**{_pname(p)}** | Enroll: `{p.get('enrollment_number','')}` | "
-                f"Syndicate: {(g.get('syndicates') or {}).get('name','—')}"
+                f"Syndicate: {syn}"
             )
-            sub_c1, sub_c2, sub_c3, sub_c4 = st.columns(4)
-            _show_breakdown(sub_c1, "Quiz",       g.get("quiz_breakdown",[]),       "quiz_no")
-            _show_breakdown(sub_c2, "Assignment",  g.get("assignment_breakdown",[]), "assignment_no")
-            _show_breakdown(sub_c3, "Midterm Q",  g.get("midterm_breakdown",[]),    "question_no")
-            _show_breakdown(sub_c4, "Final Q",    g.get("final_breakdown",[]),      "question_no")
+            qb = _parse_breakdown(g.get("quiz_breakdown"))
+            ab = _parse_breakdown(g.get("assignment_breakdown"))
+            mb = _parse_breakdown(g.get("midterm_breakdown"))
+            fb = _parse_breakdown(g.get("final_breakdown"))
+
+            bc1, bc2 = st.columns(2)
+            with bc1:
+                if qb:
+                    st.markdown("**📝 Quizzes**")
+                    for item in qb:
+                        st.caption(f"Quiz {item.get('quiz_no','?')}: "
+                                   f"**{item.get('obtained','—')}** / {item.get('max_marks','?')}")
+                    q_tot = g.get("quiz_total")
+                    q_max_sum = sum(q_maxs) if q_maxs else "?"
+                    st.markdown(f"**Quiz Total: {q_tot if q_tot is not None else '—'} / {q_max_sum}**")
+            with bc2:
+                if ab:
+                    st.markdown("**📄 Assignments**")
+                    for item in ab:
+                        st.caption(f"Asgn {item.get('assignment_no','?')}: "
+                                   f"**{item.get('obtained','—')}** / {item.get('max_marks','?')}")
+                    a_tot = g.get("assignment_total")
+                    a_max_sum = sum(a_maxs) if a_maxs else "?"
+                    st.markdown(f"**Asgn Total: {a_tot if a_tot is not None else '—'} / {a_max_sum}**")
+
+            bc3, bc4 = st.columns(2)
+            with bc3:
+                if mb:
+                    st.markdown("**📘 Midterm Questions**")
+                    for item in mb:
+                        st.caption(f"Q{item.get('question_no','?')}: "
+                                   f"**{item.get('obtained','—')}** / {item.get('max_marks','?')}")
+                    m_tot = g.get("midterm_total")
+                    st.markdown(f"**Midterm Total: {m_tot if m_tot is not None else '—'} / {sum(mq_maxs) if mq_maxs else '?'}**")
+            with bc4:
+                if fb:
+                    st.markdown("**📗 Final Questions**")
+                    for item in fb:
+                        st.caption(f"Q{item.get('question_no','?')}: "
+                                   f"**{item.get('obtained','—')}** / {item.get('max_marks','?')}")
+                    f_tot = g.get("final_total")
+                    st.markdown(f"**Final Total: {f_tot if f_tot is not None else '—'} / {sum(fq_maxs) if fq_maxs else '?'}**")
 
     # Grade distribution
     st.divider()
@@ -641,15 +730,31 @@ def _render_aol_gradebook(course_uuid, course_info, scheme, is_admin):
         )
 
 
+def _parse_breakdown(raw) -> list:
+    """Safely parse a breakdown field that may be a JSON string or list."""
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except Exception:
+            return []
+    if isinstance(raw, list):
+        return raw
+    return []
+
+
 def _show_breakdown(col, label, breakdown, key_field):
-    if not breakdown:
+    """Legacy helper kept for compatibility."""
+    items = _parse_breakdown(breakdown)
+    if not items:
         col.caption(f"{label}: —")
         return
     col.markdown(f"**{label}**")
-    for item in breakdown:
+    for item in items:
         no  = item.get(key_field, "?")
-        obt = item.get("obtained","—")
-        mx  = item.get("max_marks","—")
+        obt = item.get("obtained", "—")
+        mx  = item.get("max_marks", "—")
         col.caption(f"#{no}: {obt}/{mx}")
 
 
@@ -657,52 +762,114 @@ def _show_breakdown(col, label, breakdown, key_field):
 
 def _render_aol_config(course_uuid):
     st.subheader("⚙️ AOL Generation Configuration")
-    st.caption("Defines how marks are distributed when generating the AOL Gradebook.")
+    st.caption("Define the number of quizzes/assignments and max marks for each item individually.")
 
     cfg = UProService.get_aol_config(course_uuid)
 
-    with st.form("aol_cfg_form"):
-        section_header("Quizzes")
-        c1, c2 = st.columns(2)
-        num_q      = c1.number_input("Number of quizzes",      min_value=1, value=int(cfg["num_quizzes"]))
-        q_max      = c2.number_input("Max marks per quiz",      min_value=1.0, value=float(cfg["quiz_max_marks"]), step=0.5)
+    # ── QUIZZES ────────────────────────────────────────────────
+    section_header("Quizzes")
+    num_q = st.number_input("Number of quizzes", min_value=1, max_value=20,
+                             value=int(cfg["num_quizzes"]), step=1, key="cfg_num_q")
 
-        section_header("Assignments")
-        c3, c4 = st.columns(2)
-        num_a  = c3.number_input("Number of assignments",   min_value=1, value=int(cfg["num_assignments"]))
-        a_max  = c4.number_input("Max marks per assignment", min_value=1.0, value=float(cfg["assignment_max_marks"]), step=0.5)
+    # Same-for-all convenience
+    qc1, qc2 = st.columns([3, 1])
+    q_same = qc1.number_input("Set same max marks for ALL quizzes",
+                               min_value=0.5, value=10.0, step=0.5, key="cfg_q_same")
+    if qc2.button("Apply to all ↓", key="cfg_q_apply"):
+        for i in range(int(num_q)):
+            st.session_state[f"cfg_q_{i}"] = float(q_same)
+        st.rerun()
 
-        section_header("Midterm Questions")
-        num_mq = st.number_input("Number of midterm questions", min_value=1, value=int(cfg["num_midterm_questions"]))
-        mid_marks_str = st.text_input(
-            "Max marks per question (comma-separated)",
-            value=", ".join(str(x) for x in cfg["midterm_q_marks"]),
-            help="e.g. 12.5, 12.5"
-        )
+    # Individual quiz marks
+    quiz_marks = []
+    q_cols = st.columns(min(int(num_q), 5))
+    existing_q = cfg.get("quiz_marks_list", [10.0] * int(num_q))
+    for i in range(int(num_q)):
+        col = q_cols[i % len(q_cols)]
+        key = f"cfg_q_{i}"
+        if key not in st.session_state:
+            st.session_state[key] = float(existing_q[i]) if i < len(existing_q) else 10.0
+        val = col.number_input(f"Q{i+1} max", min_value=0.5, step=0.5, key=key)
+        quiz_marks.append(val)
 
-        section_header("Final Questions")
-        num_fq = st.number_input("Number of final questions", min_value=1, value=int(cfg["num_final_questions"]))
-        fin_marks_str = st.text_input(
-            "Max marks per question (comma-separated)",
-            value=", ".join(str(x) for x in cfg["final_q_marks"]),
-            help="e.g. 15, 15, 10"
-        )
+    st.divider()
 
-        submitted = st.form_submit_button("💾 Save Config", use_container_width=True)
+    # ── ASSIGNMENTS ────────────────────────────────────────────
+    section_header("Assignments")
+    num_a = st.number_input("Number of assignments", min_value=1, max_value=20,
+                             value=int(cfg["num_assignments"]), step=1, key="cfg_num_a")
 
-    if submitted:
-        try:
-            mid_marks = [float(x.strip()) for x in mid_marks_str.split(",") if x.strip()]
-            fin_marks = [float(x.strip()) for x in fin_marks_str.split(",") if x.strip()]
-        except ValueError:
-            st.error("Invalid marks format. Use comma-separated numbers.")
-            return
+    ac1, ac2 = st.columns([3, 1])
+    a_same = ac1.number_input("Set same max marks for ALL assignments",
+                               min_value=0.5, value=10.0, step=0.5, key="cfg_a_same")
+    if ac2.button("Apply to all ↓", key="cfg_a_apply"):
+        for i in range(int(num_a)):
+            st.session_state[f"cfg_a_{i}"] = float(a_same)
+        st.rerun()
 
+    asgn_marks = []
+    a_cols = st.columns(min(int(num_a), 5))
+    existing_a = cfg.get("assignment_marks_list", [10.0] * int(num_a))
+    for i in range(int(num_a)):
+        col = a_cols[i % len(a_cols)]
+        key = f"cfg_a_{i}"
+        if key not in st.session_state:
+            st.session_state[key] = float(existing_a[i]) if i < len(existing_a) else 10.0
+        val = col.number_input(f"A{i+1} max", min_value=0.5, step=0.5, key=key)
+        asgn_marks.append(val)
+
+    st.divider()
+
+    # ── MIDTERM QUESTIONS ──────────────────────────────────────
+    section_header("Midterm Questions")
+    num_mq = st.number_input("Number of midterm questions", min_value=1, max_value=20,
+                              value=int(cfg["num_midterm_questions"]), step=1, key="cfg_num_mq")
+    mid_marks = []
+    mq_cols = st.columns(min(int(num_mq), 5))
+    existing_mq = cfg.get("midterm_q_marks", [12.5] * int(num_mq))
+    for i in range(int(num_mq)):
+        col = mq_cols[i % len(mq_cols)]
+        key = f"cfg_mq_{i}"
+        if key not in st.session_state:
+            st.session_state[key] = float(existing_mq[i]) if i < len(existing_mq) else 12.5
+        val = col.number_input(f"MQ{i+1} max", min_value=0.5, step=0.5, key=key)
+        mid_marks.append(val)
+
+    st.divider()
+
+    # ── FINAL QUESTIONS ────────────────────────────────────────
+    section_header("Final Questions")
+    num_fq = st.number_input("Number of final questions", min_value=1, max_value=20,
+                              value=int(cfg["num_final_questions"]), step=1, key="cfg_num_fq")
+    fin_marks = []
+    fq_cols = st.columns(min(int(num_fq), 5))
+    existing_fq = cfg.get("final_q_marks", [15.0] * int(num_fq))
+    for i in range(int(num_fq)):
+        col = fq_cols[i % len(fq_cols)]
+        key = f"cfg_fq_{i}"
+        if key not in st.session_state:
+            st.session_state[key] = float(existing_fq[i]) if i < len(existing_fq) else 15.0
+        val = col.number_input(f"FQ{i+1} max", min_value=0.5, step=0.5, key=key)
+        fin_marks.append(val)
+
+    st.divider()
+
+    # ── Validation summary ─────────────────────────────────────
+    q_total  = sum(quiz_marks)
+    a_total  = sum(asgn_marks)
+    mq_total = sum(mid_marks)
+    fq_total = sum(fin_marks)
+    st.caption(
+        f"📊 Totals — Quizzes: **{q_total}** | Assignments: **{a_total}** | "
+        f"Midterm Qs: **{mq_total}** | Final Qs: **{fq_total}**"
+    )
+
+    if st.button("💾 Save AOL Config", type="primary", use_container_width=True, key="cfg_save"):
         ok = UProService.save_aol_config(course_uuid, {
             "num_quizzes":           int(num_q),
-            "quiz_max_marks":        float(q_max),
+            "quiz_marks_list":       quiz_marks,
             "num_assignments":       int(num_a),
-            "assignment_max_marks":  float(a_max),
+            "assignment_marks_list": asgn_marks,
             "num_midterm_questions": int(num_mq),
             "midterm_q_marks":       mid_marks,
             "num_final_questions":   int(num_fq),
