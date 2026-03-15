@@ -121,72 +121,7 @@ def student_console() -> None:
 
     elif menu == "🏷️ My Syndicate":
         st.title("🏷️ My Syndicate")
-        enrollments = EnrollmentService.get_student_enrollments(user.id)
-        if not enrollments:
-            st.info("You are not enrolled in any courses.")
-        else:
-            course_map = {
-                f"{e['courses']['code']} — {e['courses']['name']}": e["courses"]
-                for e in enrollments if e.get("courses")
-            }
-            sel_label   = st.selectbox("Select Course", list(course_map.keys()))
-            course      = course_map[sel_label]
-            course_uuid = course["id"]
-            membership  = UProService.get_student_syndicate(course_uuid, user.id)
-            if membership:
-                syn    = membership.get("syndicates", {}) or {}
-                status = syn.get("status", "—")
-                status_icons = {"confirmed": "✅", "pending": "⏳", "rejected": "❌"}
-                st.info(
-                    f"You are in syndicate: **{syn.get('name','—')}** | "
-                    f"Status: {status_icons.get(status,'')} {status.capitalize()}"
-                )
-                members = UProService.get_syndicate_members(membership["syndicate_id"])
-                if members:
-                    section_header("Syndicate Members")
-                    for m in members:
-                        mp      = m.get("profiles", {}) or {}
-                        is_lead = mp.get("id") == syn.get("lead_student_id")
-                        st.caption(
-                            f"{'👑 Lead: ' if is_lead else '👤 '}"
-                            f"{(mp.get('full_name') or mp.get('first_name',''))} "
-                            f"`{mp.get('enrollment_number','')}`"
-                        )
-            else:
-                st.warning("You are not in a syndicate for this course yet.")
-                st.divider()
-                section_header("Submit Syndicate Details",
-                                "Submit your syndicate name and lead for faculty confirmation")
-                with st.form("submit_syndicate_form"):
-                    syn_name  = st.text_input("Syndicate Name", placeholder="e.g. Alpha Team")
-                    lead_name = st.text_input("Syndicate Lead Name",
-                                              placeholder="Full name of the syndicate lead")
-                    st.caption("Your submission will be reviewed and confirmed by faculty.")
-                    submitted = st.form_submit_button("Submit Syndicate", use_container_width=True)
-                if submitted:
-                    if not syn_name or not lead_name:
-                        st.error("Both syndicate name and lead name are required.")
-                    else:
-                        enrolled_list = EnrollmentService.get_course_enrollments(course_uuid)
-                        lead_profile  = None
-                        for e in enrolled_list:
-                            p     = e.get("profiles", {}) or {}
-                            pname = (p.get("full_name") or
-                                     f"{p.get('first_name','')} {p.get('last_name','')}").strip().lower()
-                            if pname == lead_name.strip().lower():
-                                lead_profile = p
-                                break
-                        result = UProService.create_syndicate(
-                            course_uuid, syn_name,
-                            lead_student_id=lead_profile["id"] if lead_profile else None,
-                            created_by_role="student", status="pending",
-                        )
-                        if result:
-                            UProService.add_member(result["id"], course_uuid, user.id)
-                            st.success("✅ Syndicate submitted! It will appear here once faculty confirms it.")
-                            st.rerun()
-                        else:
-                            st.error("❌ Submission failed. A syndicate with this name may already exist.")
+        _render_student_syndicate(user, profile)
 
     # ==============================================================
     # MY PROFILE
@@ -307,7 +242,244 @@ def student_console() -> None:
         render_change_password()
 
 
-# ── Profile change request helpers ───────────────────────────────
+# ── Student Syndicate UI ─────────────────────────────────────────
+
+def _pname_profile(p: dict) -> str:
+    if not p:
+        return "—"
+    full = (p.get("full_name") or "").strip()
+    if full:
+        return full
+    return f"{p.get('first_name','') or ''} {p.get('last_name','') or ''}".strip() or "—"
+
+
+def _render_student_syndicate(user, profile):
+    import datetime as _dt
+
+    enrollments = EnrollmentService.get_student_enrollments(user.id)
+    if not enrollments:
+        st.info("You are not enrolled in any courses.")
+        return
+
+    course_map = {
+        f"{e['courses']['code']} — {e['courses']['name']}": e["courses"]
+        for e in enrollments if e.get("courses")
+    }
+    if not course_map:
+        st.info("No courses available.")
+        return
+
+    sel_label   = st.selectbox("Select Course", list(course_map.keys()), key="syn_course_sel")
+    course      = course_map[sel_label]
+    course_uuid = course["id"]
+
+    # ── Load config & state ──────────────────────────────────
+    syn_cfg      = UProService.get_syndicate_config(course_uuid)
+    max_members  = syn_cfg["max_syndicate_members"]
+    join_open    = UProService.is_join_open(course_uuid)
+    deadline_str = syn_cfg.get("syndicate_join_deadline")
+
+    all_enrollments  = EnrollmentService.get_course_enrollments(course_uuid)
+    enrolled_count   = len(all_enrollments)
+    max_syndicates   = UProService.get_allowed_syndicate_count(course_uuid, enrolled_count)
+    all_syndicates   = [s for s in UProService.get_syndicates(course_uuid)
+                        if s.get("status") == "confirmed"]
+    membership       = UProService.get_student_syndicate(course_uuid, user.id)
+
+    # ── Status bar ───────────────────────────────────────────
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Max Members / Syndicate", max_members)
+    c2.metric("Allowed Syndicates", max_syndicates)
+    if deadline_str:
+        try:
+            dl = _dt.date.fromisoformat(str(deadline_str))
+            days_left = (dl - _dt.date.today()).days
+            c3.metric("Join Deadline", str(dl),
+                       delta=f"{days_left}d left" if days_left >= 0 else "Closed",
+                       delta_color="normal" if days_left >= 0 else "inverse")
+        except Exception:
+            c3.metric("Join Deadline", deadline_str)
+    else:
+        c3.metric("Join Deadline", "Not set")
+
+    if not join_open:
+        st.warning("⏰ The syndicate joining period has ended. Only admin/faculty can make changes.")
+    else:
+        st.success("✅ Syndicate joining is open.")
+
+    st.divider()
+
+    # ── CASE 1: Student is already in a syndicate ────────────
+    if membership:
+        syn     = membership.get("syndicates", {}) or {}
+        syn_id  = membership["syndicate_id"]
+        members = UProService.get_syndicate_members(syn_id)
+        lead_id = syn.get("lead_student_id")
+
+        section_header(
+            f"🏷️ {syn.get('name','—')}",
+            f"{len(members)} / {max_members} members"
+        )
+
+        # Member list
+        for m in members:
+            mp      = m.get("profiles", {}) or {}
+            is_lead = mp.get("id") == lead_id
+            st.markdown(
+                f"{'👑 ' if is_lead else '👤 '}"
+                f"**{_pname_profile(mp)}** "
+                f"`{mp.get('enrollment_number','')}`"
+                + (" *(Lead)*" if is_lead else "")
+            )
+
+        st.divider()
+
+        # ── Voting (only after deadline) ─────────────────────
+        if not join_open:
+            _render_vote_section(course_uuid, syn_id, user.id, members, lead_id)
+
+        # ── Leave syndicate (only before deadline) ────────────
+        if join_open:
+            st.divider()
+            if st.button("🚪 Leave Syndicate", key="stu_leave_syn", type="secondary"):
+                st.session_state["stu_leave_confirm"] = True
+
+            if st.session_state.get("stu_leave_confirm"):
+                st.warning("⚠️ Are you sure you want to leave this syndicate?")
+                cy, cn = st.columns(2)
+                if cy.button("Yes, leave", key="stu_leave_yes", use_container_width=True):
+                    if UProService.remove_member(syn_id, user.id):
+                        st.session_state.pop("stu_leave_confirm", None)
+                        st.success("You have left the syndicate.")
+                        st.rerun()
+                    else:
+                        st.error("Failed to leave.")
+                if cn.button("Cancel", key="stu_leave_no", use_container_width=True):
+                    st.session_state.pop("stu_leave_confirm", None)
+                    st.rerun()
+
+    # ── CASE 2: Not in any syndicate ─────────────────────────
+    else:
+        if not join_open:
+            st.info("The joining period has ended and you are not in a syndicate. Contact your admin or faculty.")
+            return
+
+        st.info("You are not in any syndicate for this course yet.")
+
+        tab_create, tab_join = st.tabs(["➕ Create Syndicate", "🔍 Join Syndicate"])
+
+        # ── CREATE ────────────────────────────────────────────
+        with tab_create:
+            section_header("Create a New Syndicate",
+                            "Submit a name — admin/faculty will confirm it")
+            # Check slot availability
+            if len(all_syndicates) >= max_syndicates:
+                st.error(
+                    f"Maximum number of syndicates ({max_syndicates}) for this course "
+                    f"has been reached. Please join an existing one."
+                )
+            else:
+                syn_name_in = st.text_input(
+                    "Syndicate Name", placeholder="e.g. Alpha Team",
+                    key="stu_create_syn_name"
+                )
+                st.caption(
+                    f"ℹ️ {max_syndicates - len(all_syndicates)} syndicate slot(s) remaining. "
+                    f"Max {max_members} members each."
+                )
+                if st.button("🚀 Submit Syndicate", key="stu_create_syn_btn",
+                             use_container_width=True, type="primary"):
+                    name = syn_name_in.strip()
+                    if not name:
+                        st.error("Please enter a syndicate name.")
+                    elif any(s["name"].lower() == name.lower() for s in all_syndicates):
+                        st.error("A syndicate with this name already exists.")
+                    else:
+                        result = UProService.create_syndicate(
+                            course_uuid, name,
+                            lead_student_id=user.id,   # creator is initial lead
+                            created_by_role="student",
+                            status="confirmed",         # auto-confirmed; admin can rename
+                        )
+                        if result:
+                            UProService.add_member(result["id"], course_uuid, user.id)
+                            st.success(
+                                f"✅ Syndicate **{name}** created! "
+                                "Admin/faculty may edit the name. Others can now join."
+                            )
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed. Name may already exist.")
+
+        # ── JOIN ──────────────────────────────────────────────
+        with tab_join:
+            section_header("Join an Existing Syndicate",
+                            "Pick a syndicate that has open spots")
+            if not all_syndicates:
+                st.info("No syndicates created yet for this course.")
+            else:
+                open_syns = []
+                for s in all_syndicates:
+                    mems = UProService.get_syndicate_members(s["id"])
+                    if len(mems) < max_members:
+                        open_syns.append((s, mems))
+
+                if not open_syns:
+                    st.warning("All syndicates are full. Ask admin/faculty to adjust limits.")
+                else:
+                    for syn, mems in open_syns:
+                        lead_p  = syn.get("profiles") or {}
+                        spots   = max_members - len(mems)
+                        with st.expander(
+                            f"🏷️ **{syn['name']}** — "
+                            f"{len(mems)}/{max_members} members | {spots} spot(s) open"
+                        ):
+                            for m in mems:
+                                mp      = m.get("profiles", {}) or {}
+                                is_lead = mp.get("id") == syn.get("lead_student_id")
+                                st.caption(
+                                    f"{'👑 ' if is_lead else '👤 '}"
+                                    f"{_pname_profile(mp)} "
+                                    f"`{mp.get('enrollment_number','')}`"
+                                )
+                            if st.button(f"➕ Join {syn['name']}", key=f"stu_join_{syn['id']}",
+                                         use_container_width=True, type="primary"):
+                                if UProService.add_member(syn["id"], course_uuid, user.id):
+                                    st.success(f"✅ You have joined **{syn['name']}**!")
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to join.")
+
+
+def _render_vote_section(course_uuid, syndicate_id, voter_id, members, current_lead_id):
+    """Voting for syndicate lead — available after join deadline."""
+    section_header("🗳️ Vote for Lead",
+                    "Joining period ended — vote for your syndicate lead")
+    existing_vote = UProService.get_student_vote(syndicate_id, voter_id)
+    if existing_vote:
+        st.info(f"✅ You already voted. Your vote: nominee ID `{existing_vote.get('nominee_id','—')}`")
+        return
+
+    member_profiles = [m.get("profiles", {}) or {} for m in members]
+    eligible        = [p for p in member_profiles if p.get("id")]
+    if not eligible:
+        st.caption("No members to vote for.")
+        return
+
+    options     = {_pname_profile(p): p["id"] for p in eligible}
+    sel_nominee = st.selectbox("Select nominee", list(options.keys()), key=f"vote_sel_{syndicate_id}")
+    if st.button("🗳️ Cast Vote", key=f"vote_btn_{syndicate_id}",
+                 use_container_width=True, type="primary"):
+        ok, msg = UProService.submit_vote(course_uuid, voter_id,
+                                          syndicate_id, options[sel_nominee])
+        if ok:
+            st.success(f"✅ Vote cast for {sel_nominee}. Lead updated by majority.")
+            st.rerun()
+        else:
+            st.error(f"❌ {msg}")
+
+
+# ── Profile change request helpers ──────────────────────────────── ───────────────────────────────
 
 def _render_change_request(student_id, field_name, current_value,
                             label, placeholder, hint, pattern):
