@@ -444,6 +444,11 @@ class UProService(BaseService):
                     "assignment_total":      asgn_total,
                     "midterm_total":         mid_total,
                     "final_total":           fin_total,
+                    # Original scores as entered by user in UPro Scores tab
+                    "quiz_upro_score":       float(s["quiz_score"])       if s.get("quiz_score")       is not None else None,
+                    "assignment_upro_score": float(s["assignment_score"]) if s.get("assignment_score") is not None else None,
+                    "midterm_upro_score":    float(s["midterm_score"])    if s.get("midterm_score")    is not None else None,
+                    "final_upro_score":      float(s["final_score"])      if s.get("final_score")      is not None else None,
                     "grand_total":           grand,
                     "letter_grade":          letter,
                     "gpa_points":            gpa,
