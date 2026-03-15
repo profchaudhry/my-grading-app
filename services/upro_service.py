@@ -249,30 +249,53 @@ class UProService(BaseService):
 
     @staticmethod
     def get_aol_config(course_uuid: str) -> dict:
+        _default = {
+            "num_quizzes":           3,
+            "quiz_marks_list":       [10.0, 10.0, 10.0],
+            "num_assignments":       3,
+            "assignment_marks_list": [10.0, 10.0, 10.0],
+            "num_midterm_questions": 2,
+            "midterm_q_marks":       [12.5, 12.5],
+            "num_final_questions":   3,
+            "final_q_marks":         [15.0, 15.0, 10.0],
+        }
         try:
             r = supabase.table("aol_config").select("*")\
                 .eq("course_id", course_uuid).execute()
             if r.data:
                 cfg = r.data[0]
                 # Parse JSONB arrays
-                for key in ["midterm_q_marks", "final_q_marks"]:
-                    if isinstance(cfg[key], str):
-                        cfg[key] = json.loads(cfg[key])
+                for key in ["quiz_marks_list", "assignment_marks_list",
+                            "midterm_q_marks", "final_q_marks"]:
+                    v = cfg.get(key)
+                    if isinstance(v, str):
+                        try:
+                            cfg[key] = json.loads(v)
+                        except Exception:
+                            cfg[key] = _default[key]
+                    elif v is None:
+                        cfg[key] = _default[key]
+                # Back-compat: if old single-value fields exist, convert to list
+                if "quiz_marks_list" not in cfg or not cfg["quiz_marks_list"]:
+                    old_max = float(cfg.get("quiz_max_marks") or 10)
+                    cfg["quiz_marks_list"] = [old_max] * int(cfg.get("num_quizzes") or 3)
+                if "assignment_marks_list" not in cfg or not cfg["assignment_marks_list"]:
+                    old_max = float(cfg.get("assignment_max_marks") or 10)
+                    cfg["assignment_marks_list"] = [old_max] * int(cfg.get("num_assignments") or 3)
+                # Pad/trim lists to match num counts
+                nq = int(cfg.get("num_quizzes") or 3)
+                na = int(cfg.get("num_assignments") or 3)
+                cfg["quiz_marks_list"]       = _pad_or_trim(cfg["quiz_marks_list"], nq, 10.0)
+                cfg["assignment_marks_list"] = _pad_or_trim(cfg["assignment_marks_list"], na, 10.0)
+                cfg["midterm_q_marks"]       = _pad_or_trim(
+                    cfg["midterm_q_marks"], int(cfg.get("num_midterm_questions") or 2), 12.5)
+                cfg["final_q_marks"]         = _pad_or_trim(
+                    cfg["final_q_marks"], int(cfg.get("num_final_questions") or 3), 15.0)
                 return cfg
-            return {
-                "num_quizzes": 3, "quiz_max_marks": 10,
-                "num_assignments": 3, "assignment_max_marks": 10,
-                "num_midterm_questions": 2, "midterm_q_marks": [12.5, 12.5],
-                "num_final_questions": 3,  "final_q_marks": [15.0, 15.0, 10.0],
-            }
+            return _default
         except Exception as e:
             logger.exception(f"Failed to fetch AOL config: {course_uuid}")
-            return {
-                "num_quizzes": 3, "quiz_max_marks": 10,
-                "num_assignments": 3, "assignment_max_marks": 10,
-                "num_midterm_questions": 2, "midterm_q_marks": [12.5, 12.5],
-                "num_final_questions": 3,  "final_q_marks": [15.0, 15.0, 10.0],
-            }
+            return _default
 
     @staticmethod
     def save_aol_config(course_uuid: str, cfg: dict) -> bool:
@@ -321,61 +344,67 @@ class UProService(BaseService):
                 quiz_total = asgn_total = mid_total = fin_total = None
 
                 # ── Quiz ──────────────────────────────────────
+                # quiz_score from UPro is "obtained out of weight_quiz"
+                # We distribute it proportionally across individual quizzes
                 if "quiz" in components and s.get("quiz_score") is not None:
-                    raw    = float(s["quiz_score"])
-                    n      = cfg["num_quizzes"]
-                    q_max  = float(cfg["quiz_max_marks"])
-                    total_max = n * q_max
-                    scaled = (raw / w_quiz) * total_max
-                    dist   = _distribute_marks(scaled, n, [q_max] * n)
+                    upro_val   = float(s["quiz_score"])          # e.g. 15 out of weight_quiz
+                    q_maxs     = cfg["quiz_marks_list"]          # e.g. [10, 10, 10]
+                    total_max  = sum(q_maxs)                     # e.g. 30
+                    # Scale: upro_val is out of w_quiz; convert to out of total_max
+                    scaled     = (upro_val / w_quiz) * total_max if w_quiz > 0 else 0.0
+                    scaled     = min(scaled, total_max)
+                    dist       = _distribute_marks(scaled, len(q_maxs), q_maxs)
                     quiz_breakdown = [
-                        {"quiz_no": i+1, "max_marks": q_max, "obtained": dist[i]}
-                        for i in range(n)
+                        {"quiz_no": i+1, "max_marks": q_maxs[i], "obtained": dist[i]}
+                        for i in range(len(q_maxs))
                     ]
-                    quiz_total = sum(d["obtained"] for d in quiz_breakdown)
+                    quiz_total  = round(sum(d["obtained"] for d in quiz_breakdown), 2)
+                    # Store the upro score (out of w_quiz) for display
+                    quiz_upro_score = upro_val
 
                 # ── Assignment ────────────────────────────────
                 if "assignment" in components and s.get("assignment_score") is not None:
-                    raw    = float(s["assignment_score"])
-                    n      = cfg["num_assignments"]
-                    a_max  = float(cfg["assignment_max_marks"])
-                    total_max = n * a_max
-                    scaled = (raw / w_asgn) * total_max
-                    dist   = _distribute_marks(scaled, n, [a_max] * n)
+                    upro_val   = float(s["assignment_score"])
+                    a_maxs     = cfg["assignment_marks_list"]
+                    total_max  = sum(a_maxs)
+                    scaled     = (upro_val / w_asgn) * total_max if w_asgn > 0 else 0.0
+                    scaled     = min(scaled, total_max)
+                    dist       = _distribute_marks(scaled, len(a_maxs), a_maxs)
                     assignment_breakdown = [
-                        {"assignment_no": i+1, "max_marks": a_max, "obtained": dist[i]}
-                        for i in range(n)
+                        {"assignment_no": i+1, "max_marks": a_maxs[i], "obtained": dist[i]}
+                        for i in range(len(a_maxs))
                     ]
-                    asgn_total = sum(d["obtained"] for d in assignment_breakdown)
+                    asgn_total  = round(sum(d["obtained"] for d in assignment_breakdown), 2)
+                    asgn_upro_score = upro_val
 
                 # ── Midterm ───────────────────────────────────
+                # midterm_score from UPro is direct total obtained (out of w_mid)
                 if "midterm" in components and s.get("midterm_score") is not None:
-                    raw    = float(s["midterm_score"])
-                    n      = cfg["num_midterm_questions"]
-                    q_maxs = cfg["midterm_q_marks"][:n]
-                    # pad if needed
-                    while len(q_maxs) < n:
-                        q_maxs.append(float(cfg.get("midterm_q_marks", [12.5])[0]))
-                    dist   = _distribute_marks(raw, n, q_maxs)
+                    upro_val   = float(s["midterm_score"])
+                    q_maxs     = cfg["midterm_q_marks"]
+                    total_max  = sum(q_maxs)
+                    scaled     = (upro_val / w_mid) * total_max if w_mid > 0 else 0.0
+                    scaled     = min(scaled, total_max)
+                    dist       = _distribute_marks(scaled, len(q_maxs), q_maxs)
                     midterm_breakdown = [
                         {"question_no": i+1, "max_marks": float(q_maxs[i]), "obtained": dist[i]}
-                        for i in range(n)
+                        for i in range(len(q_maxs))
                     ]
-                    mid_total = sum(d["obtained"] for d in midterm_breakdown)
+                    mid_total   = round(sum(d["obtained"] for d in midterm_breakdown), 2)
 
                 # ── Final ─────────────────────────────────────
                 if "final" in components and s.get("final_score") is not None:
-                    raw    = float(s["final_score"])
-                    n      = cfg["num_final_questions"]
-                    q_maxs = cfg["final_q_marks"][:n]
-                    while len(q_maxs) < n:
-                        q_maxs.append(float(cfg.get("final_q_marks", [15.0])[0]))
-                    dist   = _distribute_marks(raw, n, q_maxs)
+                    upro_val   = float(s["final_score"])
+                    q_maxs     = cfg["final_q_marks"]
+                    total_max  = sum(q_maxs)
+                    scaled     = (upro_val / w_fin) * total_max if w_fin > 0 else 0.0
+                    scaled     = min(scaled, total_max)
+                    dist       = _distribute_marks(scaled, len(q_maxs), q_maxs)
                     final_breakdown = [
                         {"question_no": i+1, "max_marks": float(q_maxs[i]), "obtained": dist[i]}
-                        for i in range(n)
+                        for i in range(len(q_maxs))
                     ]
-                    fin_total = sum(d["obtained"] for d in final_breakdown)
+                    fin_total   = round(sum(d["obtained"] for d in final_breakdown), 2)
 
                 # ── Grand total & grade ───────────────────────
                 parts = [x for x in [
