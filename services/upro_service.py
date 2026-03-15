@@ -16,47 +16,62 @@ logger = logging.getLogger("sylemax.upro_service")
 
 # ── Helpers ───────────────────────────────────────────────────────
 
-def _distribute_marks(total: float, parts: int, max_per_part: list[float]) -> list[int]:
+def _distribute_marks(total: float, parts: int, max_per_part: list[float]) -> list[float]:
     """
-    Distribute `total` into `parts` integer values summing to round(total),
-    each <= max_per_part[i].  Returns a list of ints.
+    Distribute `total` marks across `parts` items where each item i cannot
+    exceed max_per_part[i].  Returns a list of floats (1 decimal place).
+
+    Algorithm:
+      1. Clamp total to the sum of all maximums.
+      2. Assign each item proportionally: item_i gets (max_i / total_max) * total.
+      3. Clamp each item to its individual maximum (handles floating-point drift).
+      4. If the sum doesn't exactly equal target due to rounding, redistribute
+         the remainder across items that still have headroom — never exceeding max.
     """
-    target = round(total)
-    if parts == 0 or target == 0:
-        return [0] * parts
+    if parts == 0:
+        return []
 
-    # Start with zeros, then randomly add marks
-    result = [0] * parts
-    remaining = target
+    caps = [float(m) for m in max_per_part]
+    total_max = sum(caps)
 
-    # Clamp target to possible max
-    possible_max = sum(int(m) for m in max_per_part)
-    remaining = min(remaining, possible_max)
+    if total_max <= 0:
+        return [0.0] * parts
 
-    indices = list(range(parts))
-    random.shuffle(indices)
+    # Clamp total to what is achievable
+    target = min(float(total), total_max)
+    target = max(0.0, target)
 
-    for i in indices:
-        cap = min(int(max_per_part[i]), remaining)
-        if i == indices[-1]:
-            result[i] = remaining  # give rest to last
-        else:
-            val = random.randint(0, cap)
-            result[i] = val
-            remaining -= val
-        if remaining <= 0:
-            break
+    if target == 0.0:
+        return [0.0] * parts
 
-    # Clamp negatives (edge case)
-    result = [max(0, v) for v in result]
-    # Fix rounding drift
-    diff = target - sum(result)
-    for i in range(abs(diff)):
-        idx = i % parts
-        if diff > 0:
-            result[idx] = min(result[idx] + 1, int(max_per_part[idx]))
-        else:
-            result[idx] = max(result[idx] - 1, 0)
+    # Proportional assignment
+    result = [round((caps[i] / total_max) * target, 1) for i in range(parts)]
+
+    # Hard-clamp each item to its cap (safety net)
+    result = [min(result[i], caps[i]) for i in range(parts)]
+    result = [max(0.0, v) for v in result]
+
+    # Fix any drift: redistribute surplus/deficit one tenth at a time
+    diff = round(target - sum(result), 1)
+    step = 0.1 if diff > 0 else -0.1
+    iterations = 0
+    while abs(diff) >= 0.05 and iterations < 1000:
+        for i in range(parts):
+            if abs(diff) < 0.05:
+                break
+            if step > 0 and result[i] < caps[i]:
+                add = min(step, caps[i] - result[i], diff)
+                result[i] = round(result[i] + add, 1)
+                diff = round(diff - add, 1)
+            elif step < 0 and result[i] > 0:
+                sub = min(-step, result[i], -diff)
+                result[i] = round(result[i] - sub, 1)
+                diff = round(diff + sub, 1)
+        iterations += 1
+
+    # Final clamp to ensure nothing ever exceeds its cap
+    result = [min(round(v, 1), caps[i]) for i, v in enumerate(result)]
+    result = [max(0.0, v) for v in result]
 
     return result
 
