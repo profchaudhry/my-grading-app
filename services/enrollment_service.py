@@ -31,7 +31,7 @@ def _cached_get_student_enrollments(student_id: str) -> list:
         response = (
             supabase
             .table("enrollments")
-            .select("*, courses(id, name, code, credits, departments(name)), semesters(name)")
+            .select("*, courses(id, name, code, course_id, credits, description, departments(name)), semesters(name)")
             .eq("student_id", student_id)
             .eq("status", "active")
             .execute()
