@@ -561,11 +561,15 @@ def _render_aol_gradebook(course_uuid, course_info, scheme, is_admin):
             obt = qb[i]["obtained"] if i < len(qb) else "—"
             row[f"Q{i+1} (/{mx})"] = obt
 
-        # Quiz total and UPro score
-        q_tot = g.get("quiz_total")
+        # Quiz total (sum of individual quiz obtained) and original UPro input
+        q_tot     = g.get("quiz_total")
         q_max_sum = sum(q_maxs) if q_maxs else "?"
         row[f"Quiz Total (/{q_max_sum})"] = f"{q_tot:.2f}" if q_tot is not None else "—"
-        row["Quiz UPro Score"] = g.get("quiz_total", "—")   # stored as the distributed total
+        # quiz_upro_score = the raw value entered by user in UPro Scores tab
+        quiz_upro = g.get("quiz_upro_score")
+        row[f"Quiz UPro Score (/{scheme.get('weight_quiz','?')})"] = (
+            f"{quiz_upro:.2f}" if quiz_upro is not None else "—"
+        )
 
         # Individual assignment scores
         for i in range(na):
@@ -573,10 +577,13 @@ def _render_aol_gradebook(course_uuid, course_info, scheme, is_admin):
             obt = ab[i]["obtained"] if i < len(ab) else "—"
             row[f"A{i+1} (/{mx})"] = obt
 
-        a_tot = g.get("assignment_total")
+        a_tot     = g.get("assignment_total")
         a_max_sum = sum(a_maxs) if a_maxs else "?"
         row[f"Asgn Total (/{a_max_sum})"] = f"{a_tot:.2f}" if a_tot is not None else "—"
-        row["Asgn UPro Score"] = g.get("assignment_total", "—")
+        asgn_upro = g.get("assignment_upro_score")
+        row[f"Asgn UPro Score (/{scheme.get('weight_assignment','?')})"] = (
+            f"{asgn_upro:.2f}" if asgn_upro is not None else "—"
+        )
 
         # Midterm questions
         for i, item in enumerate(mb):
@@ -627,18 +634,24 @@ def _render_aol_gradebook(course_uuid, course_info, scheme, is_admin):
                     for item in qb:
                         st.caption(f"Quiz {item.get('quiz_no','?')}: "
                                    f"**{item.get('obtained','—')}** / {item.get('max_marks','?')}")
-                    q_tot = g.get("quiz_total")
+                    q_tot     = g.get("quiz_total")
                     q_max_sum = sum(q_maxs) if q_maxs else "?"
                     st.markdown(f"**Quiz Total: {q_tot if q_tot is not None else '—'} / {q_max_sum}**")
+                    quiz_upro = g.get("quiz_upro_score")
+                    w_q = scheme.get("weight_quiz", "?")
+                    st.markdown(f"**Quiz UPro Score (entered): {f'{quiz_upro:.2f}' if quiz_upro is not None else '—'} / {w_q}**")
             with bc2:
                 if ab:
                     st.markdown("**📄 Assignments**")
                     for item in ab:
                         st.caption(f"Asgn {item.get('assignment_no','?')}: "
                                    f"**{item.get('obtained','—')}** / {item.get('max_marks','?')}")
-                    a_tot = g.get("assignment_total")
+                    a_tot     = g.get("assignment_total")
                     a_max_sum = sum(a_maxs) if a_maxs else "?"
                     st.markdown(f"**Asgn Total: {a_tot if a_tot is not None else '—'} / {a_max_sum}**")
+                    asgn_upro = g.get("assignment_upro_score")
+                    w_a = scheme.get("weight_assignment", "?")
+                    st.markdown(f"**Asgn UPro Score (entered): {f'{asgn_upro:.2f}' if asgn_upro is not None else '—'} / {w_a}**")
 
             bc3, bc4 = st.columns(2)
             with bc3:
