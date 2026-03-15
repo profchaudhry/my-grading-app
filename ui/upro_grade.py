@@ -235,11 +235,12 @@ def _render_syndicates(course_uuid, enrolled_profiles, student_map, is_admin):
                         if st.button("➕ Add", key=f"add_btn_{syn['id']}",
                                      use_container_width=True):
                             target = next(p for p in available if _pname(p) == add_sel)
-                            if UProService.add_member(syn["id"], course_uuid, target["id"]):
+                            _ok, _msg = UProService.add_member(syn["id"], course_uuid, target["id"])
+                            if _ok:
                                 st.success(f"✅ {add_sel} added.")
                                 st.rerun()
                             else:
-                                st.error("Failed.")
+                                st.error(f"❌ {_msg}")
 
                 # ── Rename syndicate ──────────────────────────
                 with st.expander("✏️ Rename syndicate", expanded=False):
@@ -310,7 +311,9 @@ def _render_syndicates(course_uuid, enrolled_profiles, student_map, is_admin):
                     dest_syn  = next(s for s in has_spots if s["name"] == dest_sel)
                     if st.button(f"➕ Assign {_pname(p)}",
                                   key=f"assign_btn_{p['id']}"):
-                        UProService.add_member(dest_syn["id"], course_uuid, p["id"])
+                        _ok, _msg = UProService.add_member(dest_syn["id"], course_uuid, p["id"])
+                        if not _ok:
+                            st.error(f"❌ {_msg}")
                         st.success(f"Assigned to {dest_sel}.")
                         st.rerun()
 
